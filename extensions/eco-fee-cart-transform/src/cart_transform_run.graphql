@@ -1,0 +1,62 @@
+query CartTransformRunInput {
+  cart {
+    lines {
+      id
+      quantity
+      cost {
+        amountPerQuantity {
+          amount
+          currencyCode
+        }
+      }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          product {
+            title
+
+            # ✅ Category tags: universal, scalable
+            ecoCategoryTags: hasTags(
+              tags: [
+                "eco-category-computers"
+                "eco-category-laptops"
+
+                # Displays / Monitors / All-in-One PCs (merchant-facing size tiers)
+                "eco-category-monitor-small"     # up to 30"
+                "eco-category-monitor-large"     # 30" up to 46"
+                "eco-category-monitor-xlarge"    # 46" and above
+
+                # Printers
+                "eco-category-printers"
+                "eco-category-printers-floorstanding"
+
+                # Other common categories (optional but recommended for BC/NB/NL coverage)
+                "eco-category-peripherals"
+                "eco-category-av"
+
+                # Phones (optional — include now so you don’t have to redeploy later)
+                "eco-category-phone-noncell"
+                "eco-category-phone-cell"
+
+                # Existing tags you already use
+                "eco-category-small-appliances"
+                "eco-category-tools"
+              ]
+            ) {
+              tag
+              hasTag
+            }
+          }
+        }
+      }
+    }
+  }
+
+  shop {
+    # Merchant-selected fallback province (metafield)
+    jurisdiction: metafield(namespace: "synorai_ecocharge", key: "jurisdiction") {
+      value
+    }
+  }
+}

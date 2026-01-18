@@ -1,0 +1,21 @@
+api_version = "2025-10"
+
+[[extensions]]
+name = "t:name"
+handle = "eco-fee-cart-transform"
+type = "function"
+uid = "8e62fc2a-7b1f-b90d-f97d-d63cf9b6bcf6421cdfce"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.transform.run"
+  input_query = "src/cart_transform_run.graphql"
+  export = "cart-transform-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/"
+  details = "/"
