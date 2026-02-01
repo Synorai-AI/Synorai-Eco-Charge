@@ -19,10 +19,6 @@ import { authenticate } from "../shopify.server";
 const METAFIELD_NAMESPACE = "synorai_ecocharge";
 const METAFIELD_KEY = "jurisdiction";
 
-// Cart transform function identification (robust matching)
-const EXPECTED_FUNCTION_TITLE = "eco-fee-cart-transform";
-const EXPECTED_API_TYPE = "cart_transform";
-
 const ALLOWED_PROVINCES = ["AB", "BC", "SK"] as const;
 type Province = (typeof ALLOWED_PROVINCES)[number];
 
@@ -36,64 +32,24 @@ type LoaderData = {
   shopDomain: string;
   currentProvince: Province | null;
 
-  // Transform health/status
+  // Cart Transform status
   functionId: string | null;
-  transformId: string | null;
-  transformActive: boolean;
-  transformStatusMessage?: string;
+  cartTransformId: string | null;
+  isTransformActive: boolean;
 };
 
 type ActionData =
-  | { ok: true; intent: "save_province"; province: Province }
-  | { ok: true; intent: "activate_transform"; transformId: string }
-  | { ok: false; intent: "save_province" | "activate_transform"; error: string };
+  | { ok: true; kind: "province"; province: Province }
+  | { ok: true; kind: "transform"; cartTransformId: string }
+  | { ok: false; error: string };
 
 function isProvince(value: string): value is Province {
   return (ALLOWED_PROVINCES as readonly string[]).includes(value);
 }
 
-/**
- * Shopify IDs can show up as:
- * - plain ids (e.g., "019bd31f-...")
- * - gid strings (e.g., "gid://shopify/ShopifyFunction/123")
- * We normalize by extracting the last segment if it looks like gid, otherwise return as-is.
- */
-function normalizeShopifyId(id: unknown): string | null {
-  if (typeof id !== "string" || !id.trim()) return null;
-  const s = id.trim();
-  if (s.startsWith("gid://")) {
-    const parts = s.split("/");
-    return parts[parts.length - 1] || null;
-  }
-  return s;
-}
-
-async function getCurrentProvince(admin: any): Promise<Province | null> {
+async function getFunctionId(admin: any): Promise<string | null> {
+  // Find the deployed function for this app (cart_transform)
   const query = `#graphql
-    query GetSettings {
-      shop {
-        metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${METAFIELD_KEY}") {
-          value
-        }
-      }
-    }
-  `;
-
-  const res = await admin.graphql(query);
-  const json = await res.json();
-
-  const raw = json?.data?.shop?.metafield?.value;
-  return typeof raw === "string" && isProvince(raw) ? raw : null;
-}
-
-async function getCartTransformStatus(admin: any): Promise<{
-  functionId: string | null;
-  transformId: string | null;
-  transformActive: boolean;
-  message?: string;
-}> {
-  // 1) Find the cart transform function id
-  const functionsQuery = `#graphql
     query GetFunctions {
       shopifyFunctions(first: 50) {
         nodes {
@@ -105,35 +61,31 @@ async function getCartTransformStatus(admin: any): Promise<{
     }
   `;
 
-  const functionsRes = await admin.graphql(functionsQuery);
-  const functionsJson = await functionsRes.json();
+  const res = await admin.graphql(query);
+  const json = await res.json();
 
-  const functions: Array<{ id: string; title: string; apiType: string }> =
-    functionsJson?.data?.shopifyFunctions?.nodes ?? [];
+  const nodes: Array<{ id: string; title: string; apiType: string }> =
+    json?.data?.shopifyFunctions?.nodes ?? [];
 
-  const match = functions.find((fn) => {
-    const apiType = (fn.apiType || "").toLowerCase();
-    const title = (fn.title || "").toLowerCase();
-    return apiType === EXPECTED_API_TYPE && title === EXPECTED_FUNCTION_TITLE;
-  });
+  // Your function title is eco-fee-cart-transform (from your earlier output)
+  const match = nodes.find(
+    (n) =>
+      n.apiType === "cart_transform" &&
+      (n.title === "eco-fee-cart-transform" ||
+        n.title === "eco-fee-cart-transform (production)" ||
+        n.title.includes("eco-fee-cart-transform"))
+  );
 
-  const functionIdRaw = match?.id ?? null;
-  const functionId = normalizeShopifyId(functionIdRaw);
+  return match?.id ?? null;
+}
 
-  if (!functionId) {
-    return {
-      functionId: null,
-      transformId: null,
-      transformActive: false,
-      message:
-        "Cart transform function not found. Ensure the function is deployed and titled 'eco-fee-cart-transform'.",
-    };
-  }
-
-  // 2) Check if a cart transform exists for this function
-  const transformsQuery = `#graphql
+async function getCartTransformForFunction(
+  admin: any,
+  functionId: string
+): Promise<{ cartTransformId: string | null }> {
+  const query = `#graphql
     query GetCartTransforms {
-      cartTransforms(first: 50) {
+      cartTransforms(first: 25) {
         nodes {
           id
           functionId
@@ -143,173 +95,139 @@ async function getCartTransformStatus(admin: any): Promise<{
     }
   `;
 
-  const transformsRes = await admin.graphql(transformsQuery);
-  const transformsJson = await transformsRes.json();
+  const res = await admin.graphql(query);
+  const json = await res.json();
 
   const nodes: Array<{ id: string; functionId: string }> =
-    transformsJson?.data?.cartTransforms?.nodes ?? [];
+    json?.data?.cartTransforms?.nodes ?? [];
 
-  const found = nodes.find((t) => {
-    const tFunc = normalizeShopifyId(t.functionId);
-    return tFunc === functionId;
-  });
+  const match = nodes.find((n) => n.functionId === functionId);
+  return { cartTransformId: match?.id ?? null };
+}
 
-  const transformId = normalizeShopifyId(found?.id ?? null);
+async function createCartTransform(
+  admin: any,
+  functionId: string
+): Promise<{ cartTransformId: string | null; error?: string }> {
+  const mutation = `#graphql
+    mutation CreateCartTransform($functionId: String!) {
+      cartTransformCreate(functionId: $functionId) {
+        cartTransform {
+          id
+          functionId
+          blockOnFailure
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
 
-  return {
-    functionId,
-    transformId,
-    transformActive: Boolean(transformId),
-    message: transformId
-      ? "Cart Transform is active on this store."
-      : "Cart Transform is not active yet. Click Enable to activate EcoCharge fees.",
-  };
+  const res = await admin.graphql(mutation, { variables: { functionId } });
+  const json = await res.json();
+
+  const errs = json?.data?.cartTransformCreate?.userErrors ?? [];
+  if (errs.length > 0) {
+    return { cartTransformId: null, error: errs.map((e: any) => e.message).join(", ") };
+  }
+
+  const id = json?.data?.cartTransformCreate?.cartTransform?.id ?? null;
+  if (!id) return { cartTransformId: null, error: "Cart Transform creation returned no ID." };
+
+  return { cartTransformId: id };
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
 
-  const currentProvince = await getCurrentProvince(admin);
-  const transformStatus = await getCartTransformStatus(admin);
+  // Province metafield
+  const provinceQuery = `#graphql
+    query GetSettings {
+      shop {
+        metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${METAFIELD_KEY}") {
+          value
+        }
+      }
+    }
+  `;
+  const provinceRes = await admin.graphql(provinceQuery);
+  const provinceJson = await provinceRes.json();
+
+  const raw = provinceJson?.data?.shop?.metafield?.value;
+  const currentProvince =
+    typeof raw === "string" && isProvince(raw) ? raw : null;
+
+  // Cart Transform status
+  const functionId = await getFunctionId(admin);
+  let cartTransformId: string | null = null;
+
+  if (functionId) {
+    const found = await getCartTransformForFunction(admin, functionId);
+    cartTransformId = found.cartTransformId;
+  }
 
   const data: LoaderData = {
     shopDomain: session.shop,
     currentProvince,
-    functionId: transformStatus.functionId,
-    transformId: transformStatus.transformId,
-    transformActive: transformStatus.transformActive,
-    transformStatusMessage: transformStatus.message,
+    functionId,
+    cartTransformId,
+    isTransformActive: Boolean(cartTransformId),
   };
 
-  return data;
+  return Response.json(data);
 }
 
 export async function action({ request }: ActionFunctionArgs) {
   const { admin } = await authenticate.admin(request);
 
   const formData = await request.formData();
-  const intentRaw = formData.get("intent");
-  const intent = typeof intentRaw === "string" ? intentRaw : "";
+  const intent = String(formData.get("intent") ?? "").trim();
 
-  // -------------------------
-  // Intent: Activate transform
-  // -------------------------
-  if (intent === "activate_transform") {
-    try {
-      // Re-check status (idempotent)
-      const status = await getCartTransformStatus(admin);
-
-      if (!status.functionId) {
-        const bad: ActionData = {
-          ok: false,
-          intent: "activate_transform",
-          error: status.message || "Unable to locate function for activation.",
-        };
-        return bad;
-      }
-
-      if (status.transformActive && status.transformId) {
-        const ok: ActionData = {
-          ok: true,
-          intent: "activate_transform",
-          transformId: status.transformId,
-        };
-        return ok;
-      }
-
-      // Create cart transform
-      const mutation = `#graphql
-        mutation CreateCartTransform($functionId: String!) {
-          cartTransformCreate(functionId: $functionId, blockOnFailure: false) {
-            cartTransform {
-              id
-              functionId
-              blockOnFailure
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `;
-
-      const variables = { functionId: status.functionId };
-
-      const res = await admin.graphql(mutation, { variables });
-      const json = await res.json();
-
-      const userErrors = json?.data?.cartTransformCreate?.userErrors ?? [];
-      if (userErrors.length > 0) {
-        const fail: ActionData = {
-          ok: false,
-          intent: "activate_transform",
-          error: userErrors.map((e: any) => e.message).join(", "),
-        };
-        return fail;
-      }
-
-      const createdIdRaw = json?.data?.cartTransformCreate?.cartTransform?.id;
-      const createdId = normalizeShopifyId(createdIdRaw);
-
-      if (!createdId) {
-        const fail: ActionData = {
-          ok: false,
-          intent: "activate_transform",
-          error: "Cart Transform creation returned no id.",
-        };
-        return fail;
-      }
-
-      const ok: ActionData = {
-        ok: true,
-        intent: "activate_transform",
-        transformId: createdId,
-      };
-      return ok;
-    } catch (e: any) {
-      const fail: ActionData = {
-        ok: false,
-        intent: "activate_transform",
-        error:
-          e?.message ||
-          "Unexpected error while activating Cart Transform. Check server logs.",
-      };
-      return fail;
+  if (intent === "activateTransform") {
+    const functionId = await getFunctionId(admin);
+    if (!functionId) {
+      return Response.json({ ok: false, error: "Unable to find cart_transform function for this app." });
     }
+
+    // If it already exists, treat as success (idempotent)
+    const existing = await getCartTransformForFunction(admin, functionId);
+    if (existing.cartTransformId) {
+      return Response.json({ ok: true, kind: "transform", cartTransformId: existing.cartTransformId });
+    }
+
+    const created = await createCartTransform(admin, functionId);
+    if (!created.cartTransformId) {
+      return Response.json({ ok: false, error: created.error ?? "Failed to create Cart Transform." });
+    }
+
+    return Response.json({ ok: true, kind: "transform", cartTransformId: created.cartTransformId });
   }
 
-  // -------------------------
-  // Intent: Save province
-  // -------------------------
-  if (intent === "save_province") {
+  if (intent === "saveProvince") {
     const provinceRaw = formData.get("province");
     const province = typeof provinceRaw === "string" ? provinceRaw.trim() : "";
 
     if (!province || !isProvince(province)) {
-      const bad: ActionData = {
-        ok: false,
-        intent: "save_province",
-        error: "Invalid province selected.",
-      };
-      return bad;
+      return Response.json({ ok: false, error: "Invalid province selected." });
     }
 
-    // Get shop.id (ownerId for metafieldsSet)
+    // Resolve shop.id (ownerId for metafieldsSet)
     const shopIdQuery = `#graphql
-      query GetShopId { shop { id } }
+      query GetShopId {
+        shop { id }
+      }
     `;
     const shopIdRes = await admin.graphql(shopIdQuery);
     const shopIdJson = await shopIdRes.json();
     const shopId = shopIdJson?.data?.shop?.id;
 
     if (!shopId) {
-      const fail: ActionData = {
+      return Response.json({
         ok: false,
-        intent: "save_province",
         error: "Unable to resolve Shop ID for metafield owner.",
-      };
-      return fail;
+      });
     }
 
     const mutation = `#graphql
@@ -338,32 +256,23 @@ export async function action({ request }: ActionFunctionArgs) {
 
     const userErrors = writeJson?.data?.metafieldsSet?.userErrors ?? [];
     if (userErrors.length > 0) {
-      const fail: ActionData = {
+      return Response.json({
         ok: false,
-        intent: "save_province",
         error: userErrors.map((e: any) => e.message).join(", "),
-      };
-      return fail;
+      });
     }
 
-    const ok: ActionData = { ok: true, intent: "save_province", province };
-    return ok;
+    return Response.json({ ok: true, kind: "province", province });
   }
 
-  // Unknown intent
-  const bad: ActionData = {
-    ok: false,
-    intent: "save_province",
-    error: "Unknown action.",
-  };
-  return bad;
+  return Response.json({ ok: false, error: "Unknown action." });
 }
 
 export default function SettingsRoute() {
   const loaderData = useLoaderData() as LoaderData;
 
-  const provinceFetcher = useFetcher<ActionData>();
   const activateFetcher = useFetcher<ActionData>();
+  const saveFetcher = useFetcher<ActionData>();
 
   const initialProvince = useMemo<Province>(() => {
     return loaderData.currentProvince ?? "AB";
@@ -371,81 +280,67 @@ export default function SettingsRoute() {
 
   const [province, setProvince] = useState<Province>(initialProvince);
 
-  const [provinceSuccess, setProvinceSuccess] = useState(false);
-  const [provinceError, setProvinceError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [activateSuccess, setActivateSuccess] = useState(false);
-  const [activateError, setActivateError] = useState<string | null>(null);
-
-  const isSavingProvince = provinceFetcher.state !== "idle";
   const isActivating = activateFetcher.state !== "idle";
+  const isSaving = saveFetcher.state !== "idle";
 
-  // Reset UI when switching shops
+  // Reset UI when shop changes
   useEffect(() => {
     setProvince(initialProvince);
-    setProvinceSuccess(false);
-    setProvinceError(null);
-
-    setActivateSuccess(false);
-    setActivateError(null);
+    setSuccessMessage(null);
+    setErrorMessage(null);
   }, [initialProvince, loaderData.shopDomain]);
 
-  // Province save completion
-  useEffect(() => {
-    if (provinceFetcher.state !== "idle" || !provinceFetcher.data) return;
-
-    if (provinceFetcher.data.ok && provinceFetcher.data.intent === "save_province") {
-      setProvince(provinceFetcher.data.province);
-      setProvinceSuccess(true);
-      setProvinceError(null);
-    } else if (!provinceFetcher.data.ok && provinceFetcher.data.intent === "save_province") {
-      setProvinceSuccess(false);
-      setProvinceError(provinceFetcher.data.error);
-    }
-  }, [provinceFetcher.state, provinceFetcher.data]);
-
-  // Activation completion
+  // Handle activation result
   useEffect(() => {
     if (activateFetcher.state !== "idle" || !activateFetcher.data) return;
 
-    if (activateFetcher.data.ok && activateFetcher.data.intent === "activate_transform") {
-      setActivateSuccess(true);
-      setActivateError(null);
-      // We can't mutate loaderData directly; easiest is to reload the page
-      // to reflect updated loader transformActive status.
-      window.location.reload();
-    } else if (!activateFetcher.data.ok && activateFetcher.data.intent === "activate_transform") {
-      setActivateSuccess(false);
-      setActivateError(activateFetcher.data.error);
+    if (activateFetcher.data.ok) {
+      setErrorMessage(null);
+      setSuccessMessage("EcoCharge fees were enabled successfully.");
+    } else {
+      setSuccessMessage(null);
+      setErrorMessage(activateFetcher.data.error);
     }
   }, [activateFetcher.state, activateFetcher.data]);
 
-  const handleSaveProvince = () => {
-    setProvinceSuccess(false);
-    setProvinceError(null);
+  // Handle save result
+  useEffect(() => {
+    if (saveFetcher.state !== "idle" || !saveFetcher.data) return;
 
-    const fd = new FormData();
-    fd.set("intent", "save_province");
-    fd.set("province", province);
-
-    provinceFetcher.submit(fd, { method: "post" });
-  };
+    if (saveFetcher.data.ok) {
+      setErrorMessage(null);
+      setSuccessMessage("Province compliance was updated successfully.");
+    } else {
+      setSuccessMessage(null);
+      setErrorMessage(saveFetcher.data.error);
+    }
+  }, [saveFetcher.state, saveFetcher.data]);
 
   const handleActivate = () => {
-    setActivateSuccess(false);
-    setActivateError(null);
+    setSuccessMessage(null);
+    setErrorMessage(null);
 
     const fd = new FormData();
-    fd.set("intent", "activate_transform");
+    fd.set("intent", "activateTransform");
 
     activateFetcher.submit(fd, { method: "post" });
   };
 
-  const transformBadge = loaderData.transformActive ? (
-    <Badge tone="success">Active</Badge>
-  ) : (
-    <Badge tone="critical">Not active</Badge>
-  );
+  const handleSave = () => {
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    const fd = new FormData();
+    fd.set("intent", "saveProvince");
+    fd.set("province", province);
+
+    saveFetcher.submit(fd, { method: "post" });
+  };
+
+  const isTransformActive = loaderData.isTransformActive;
 
   return (
     <Page title="EcoCharge Settings">
@@ -456,41 +351,25 @@ export default function SettingsRoute() {
               <Text as="h2" variant="headingMd">
                 EcoCharge Status
               </Text>
-              {transformBadge}
+              <Badge tone={isTransformActive ? "success" : "warning"}>
+                {isTransformActive ? "Active" : "Not active"}
+              </Badge>
             </InlineStack>
 
             <Text as="p" variant="bodyMd">
-              {loaderData.transformStatusMessage ||
-                "EcoCharge uses a Cart Transform function to add transparent environmental fees at checkout."}
+              EcoCharge applies fee adjustments using a Shopify Cart Transform function.
             </Text>
 
-            {activateSuccess && (
-              <Banner title="Enabled" status="success">
-                EcoCharge was enabled successfully.
-              </Banner>
+            {loaderData.cartTransformId && (
+              <Text as="p" variant="bodySm" tone="subdued">
+                Cart Transform ID: {loaderData.cartTransformId}
+              </Text>
             )}
 
-            {activateError && (
-              <Banner title="Enable failed" status="critical">
-                {activateError}
-              </Banner>
-            )}
-
-            {!loaderData.transformActive && (
-              <Button
-                variant="primary"
-                onClick={handleActivate}
-                loading={isActivating}
-                disabled={isActivating}
-              >
+            {!isTransformActive && (
+              <Button variant="primary" onClick={handleActivate} loading={isActivating} disabled={isActivating}>
                 Enable EcoCharge Fees
               </Button>
-            )}
-
-            {loaderData.transformActive && loaderData.transformId && (
-              <Text as="p" variant="bodySm" tone="subdued">
-                Cart Transform ID: {loaderData.transformId}
-              </Text>
             )}
           </BlockStack>
         </Card>
@@ -506,15 +385,15 @@ export default function SettingsRoute() {
               (pickup / no shipping chosen). It does not collect fees — it only adjusts line item prices.
             </Text>
 
-            {provinceSuccess && (
-              <Banner title="Saved" status="success">
-                Province compliance was updated successfully.
+            {successMessage && (
+              <Banner title="Success" status="success">
+                {successMessage}
               </Banner>
             )}
 
-            {provinceError && (
-              <Banner title="Save failed" status="critical">
-                {provinceError}
+            {errorMessage && (
+              <Banner title="Action failed" status="critical">
+                {errorMessage}
               </Banner>
             )}
 
@@ -530,9 +409,9 @@ export default function SettingsRoute() {
 
               <Button
                 variant="primary"
-                onClick={handleSaveProvince}
-                loading={isSavingProvince}
-                disabled={isSavingProvince}
+                onClick={handleSave}
+                loading={isSaving}
+                disabled={isSaving}
               >
                 Save
               </Button>

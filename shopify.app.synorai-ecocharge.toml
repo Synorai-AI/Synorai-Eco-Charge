@@ -2,7 +2,7 @@
 
 client_id = "6a8e1a956bb0c2301764cac00a74b0bf"
 name = "Synorai EcoCharge"
-application_url = "https://example.com"
+application_url = "https://eco-fee-automator.onrender.com"
 embedded = true
 
 [build]
@@ -16,4 +16,8 @@ api_version = "2026-04"
 scopes = "write_cart_transforms,write_products"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://eco-fee-automator.onrender.com/auth/callback",
+  "https://eco-fee-automator.onrender.com/auth/shopify/callback"
+]
+
