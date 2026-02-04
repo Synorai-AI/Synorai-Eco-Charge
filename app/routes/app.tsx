@@ -4,7 +4,7 @@ import { Outlet, useLoaderData } from "react-router";
 import { AppProvider as PolarisAppProvider, Frame } from "@shopify/polaris";
 import enTranslations from "@shopify/polaris/locales/en.json";
 
-import { authenticate } from "../shopify.server";
+import { authenticate, registerWebhooks } from "../shopify.server";
 
 type LoaderData = {
   shop: string;
@@ -12,6 +12,9 @@ type LoaderData = {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
+
+  // Register mandatory compliance webhooks after install/auth
+  await registerWebhooks({ session });
 
   const data: LoaderData = {
     shop: session.shop,
@@ -21,13 +24,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export default function AppLayout() {
-  // Keeps the loader “used” and gives you a handy sanity check for store switching.
   const { shop } = useLoaderData() as LoaderData;
 
   return (
     <PolarisAppProvider i18n={enTranslations}>
       <Frame>
-        {/* Optional debug: remove later */}
         <div style={{ padding: 12, fontSize: 12, opacity: 0.7 }}>
           Current shop: {shop}
         </div>
