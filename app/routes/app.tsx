@@ -13,15 +13,10 @@ type LoaderData = {
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
 
+  // Register mandatory compliance webhooks after install/auth
   console.log("[webhooks] registering for shop:", session.shop);
   const result = await registerWebhooks({ session });
   console.log("[webhooks] register result:", result);
-
-  return { shop: session.shop };
-}
-
-  // Register mandatory compliance webhooks after install/auth
-  await registerWebhooks({ session });
 
   const data: LoaderData = {
     shop: session.shop,
