@@ -20,7 +20,7 @@ compliance_topics = [
 ]
 
 [access_scopes]
-scopes = "write_cart_transforms,write_products,write_webhooks"
+scopes = "write_cart_transforms,write_products"
 
 [auth]
 redirect_urls = [
