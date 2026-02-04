@@ -11,20 +11,14 @@ automatically_update_urls_on_dev = true
 [webhooks]
 api_version = "2026-04"
 
-[[webhooks.subscriptions]]
-topics = ["customers/data_request"]
-uri = "/webhooks"
+# Mandatory compliance topics (Shopify automated checks look for this)
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
 
+# Your endpoint that receives webhooks
 [[webhooks.subscriptions]]
-topics = ["customers/redact"]
-uri = "/webhooks"
-
-[[webhooks.subscriptions]]
-topics = ["shop/redact"]
 uri = "/webhooks"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "write_cart_transforms,write_products,write_webhooks"
 
 [auth]
@@ -32,4 +26,3 @@ redirect_urls = [
   "https://eco-fee-automator.onrender.com/auth/callback",
   "https://eco-fee-automator.onrender.com/auth/shopify/callback"
 ]
-
