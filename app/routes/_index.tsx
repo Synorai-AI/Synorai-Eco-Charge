@@ -1,22 +1,24 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { redirect } from "react-router";
+import { authenticate } from "../shopify.server";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
 
+  // If Shopify is loading the embedded app, it will include shop/host (and often embedded=1).
+  // DO NOT use React Router's redirect() here — let Shopify's auth helper do the correct
+  // top-level redirect / headers so the iframe handshake doesn't break.
   const shop = url.searchParams.get("shop");
   const host = url.searchParams.get("host");
   const embedded = url.searchParams.get("embedded");
 
-  // If Shopify is trying to load the embedded app, it will include host/shop.
-  // Redirect to the actual embedded shell route (/app).
   if (shop || host || embedded) {
-    const next = new URL(url.toString());
-    next.pathname = "/app";
-    return redirect(next.pathname + next.search);
+    // This will either:
+    // - redirect to /auth if needed, or
+    // - return the correct embedded response/headers so Admin can load /app properly.
+    await authenticate.admin(request);
   }
 
-  // Otherwise, allow root to act as a simple health/landing page (useful for Render)
+  // Keep "/" as a simple health page for Render pings.
   return null;
 }
 
