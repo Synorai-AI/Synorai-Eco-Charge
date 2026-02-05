@@ -32,7 +32,6 @@ type LoaderData = {
   shopDomain: string;
   currentProvince: Province | null;
 
-  // Cart Transform status
   functionId: string | null;
   cartTransformId: string | null;
   isTransformActive: boolean;
@@ -48,7 +47,6 @@ function isProvince(value: string): value is Province {
 }
 
 async function getFunctionId(admin: any): Promise<string | null> {
-  // Find the deployed function for this app (cart_transform)
   const query = `#graphql
     query GetFunctions {
       shopifyFunctions(first: 50) {
@@ -67,7 +65,6 @@ async function getFunctionId(admin: any): Promise<string | null> {
   const nodes: Array<{ id: string; title: string; apiType: string }> =
     json?.data?.shopifyFunctions?.nodes ?? [];
 
-  // Your function title is eco-fee-cart-transform (from your earlier output)
   const match = nodes.find(
     (n) =>
       n.apiType === "cart_transform" &&
@@ -130,11 +127,19 @@ async function createCartTransform(
 
   const errs = json?.data?.cartTransformCreate?.userErrors ?? [];
   if (errs.length > 0) {
-    return { cartTransformId: null, error: errs.map((e: any) => e.message).join(", ") };
+    return {
+      cartTransformId: null,
+      error: errs.map((e: any) => e.message).join(", "),
+    };
   }
 
   const id = json?.data?.cartTransformCreate?.cartTransform?.id ?? null;
-  if (!id) return { cartTransformId: null, error: "Cart Transform creation returned no ID." };
+  if (!id) {
+    return {
+      cartTransformId: null,
+      error: "Cart Transform creation returned no ID.",
+    };
+  }
 
   return { cartTransformId: id };
 }
@@ -142,7 +147,6 @@ async function createCartTransform(
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
 
-  // Province metafield
   const provinceQuery = `#graphql
     query GetSettings {
       shop {
@@ -159,7 +163,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const currentProvince =
     typeof raw === "string" && isProvince(raw) ? raw : null;
 
-  // Cart Transform status
   const functionId = await getFunctionId(admin);
   let cartTransformId: string | null = null;
 
@@ -188,21 +191,34 @@ export async function action({ request }: ActionFunctionArgs) {
   if (intent === "activateTransform") {
     const functionId = await getFunctionId(admin);
     if (!functionId) {
-      return Response.json({ ok: false, error: "Unable to find cart_transform function for this app." });
+      return Response.json({
+        ok: false,
+        error: "Unable to find cart_transform function for this app.",
+      });
     }
 
-    // If it already exists, treat as success (idempotent)
     const existing = await getCartTransformForFunction(admin, functionId);
     if (existing.cartTransformId) {
-      return Response.json({ ok: true, kind: "transform", cartTransformId: existing.cartTransformId });
+      return Response.json({
+        ok: true,
+        kind: "transform",
+        cartTransformId: existing.cartTransformId,
+      });
     }
 
     const created = await createCartTransform(admin, functionId);
     if (!created.cartTransformId) {
-      return Response.json({ ok: false, error: created.error ?? "Failed to create Cart Transform." });
+      return Response.json({
+        ok: false,
+        error: created.error ?? "Failed to create Cart Transform.",
+      });
     }
 
-    return Response.json({ ok: true, kind: "transform", cartTransformId: created.cartTransformId });
+    return Response.json({
+      ok: true,
+      kind: "transform",
+      cartTransformId: created.cartTransformId,
+    });
   }
 
   if (intent === "saveProvince") {
@@ -213,7 +229,6 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({ ok: false, error: "Invalid province selected." });
     }
 
-    // Resolve shop.id (ownerId for metafieldsSet)
     const shopIdQuery = `#graphql
       query GetShopId {
         shop { id }
@@ -279,21 +294,18 @@ export default function SettingsRoute() {
   }, [loaderData.currentProvince]);
 
   const [province, setProvince] = useState<Province>(initialProvince);
-
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const isActivating = activateFetcher.state !== "idle";
   const isSaving = saveFetcher.state !== "idle";
 
-  // Reset UI when shop changes
   useEffect(() => {
     setProvince(initialProvince);
     setSuccessMessage(null);
     setErrorMessage(null);
   }, [initialProvince, loaderData.shopDomain]);
 
-  // Handle activation result
   useEffect(() => {
     if (activateFetcher.state !== "idle" || !activateFetcher.data) return;
 
@@ -306,7 +318,6 @@ export default function SettingsRoute() {
     }
   }, [activateFetcher.state, activateFetcher.data]);
 
-  // Handle save result
   useEffect(() => {
     if (saveFetcher.state !== "idle" || !saveFetcher.data) return;
 
@@ -357,7 +368,8 @@ export default function SettingsRoute() {
             </InlineStack>
 
             <Text as="p" variant="bodyMd">
-              EcoCharge applies fee adjustments using a Shopify Cart Transform function.
+              EcoCharge applies fee adjustments using a Shopify Cart Transform
+              function.
             </Text>
 
             {loaderData.cartTransformId && (
@@ -367,7 +379,12 @@ export default function SettingsRoute() {
             )}
 
             {!isTransformActive && (
-              <Button variant="primary" onClick={handleActivate} loading={isActivating} disabled={isActivating}>
+              <Button
+                variant="primary"
+                onClick={handleActivate}
+                loading={isActivating}
+                disabled={isActivating}
+              >
                 Enable EcoCharge Fees
               </Button>
             )}
@@ -381,19 +398,20 @@ export default function SettingsRoute() {
             </Text>
 
             <Text as="p" variant="bodyMd">
-              This is the fallback province used when the customer hasn’t selected a shipping province
-              (pickup / no shipping chosen). It does not collect fees — it only adjusts line item prices.
+              This is the fallback province used when the customer hasn’t
+              selected a shipping province (pickup / no shipping chosen). It
+              does not collect fees — it only adjusts line item prices.
             </Text>
 
             {successMessage && (
-              <Banner title="Success" status="success">
-                {successMessage}
+              <Banner title="Success" tone="success">
+                <p>{successMessage}</p>
               </Banner>
             )}
 
             {errorMessage && (
-              <Banner title="Action failed" status="critical">
-                {errorMessage}
+              <Banner title="Action failed" tone="critical">
+                <p>{errorMessage}</p>
               </Banner>
             )}
 
