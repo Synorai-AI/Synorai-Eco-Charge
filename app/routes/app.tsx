@@ -1,5 +1,9 @@
-import type { LoaderFunctionArgs } from "react-router";
-import { Outlet, useLoaderData } from "react-router";
+import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
+import { Link, Outlet, useLoaderData, useRouteError } from "react-router";
+
+import { boundary } from "@shopify/shopify-app-react-router/server";
+import { AppProvider } from "@shopify/shopify-app-react-router/react";
+import { NavMenu } from "@shopify/app-bridge-react";
 
 import { AppProvider as PolarisAppProvider, Frame } from "@shopify/polaris";
 import enTranslations from "@shopify/polaris/locales/en.json";
@@ -7,45 +11,52 @@ import enTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
 
 type LoaderData = {
+  apiKey: string;
   shop: string;
 };
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  // Authenticate (this also gives us billing + redirect helpers)
-  const { session, billing, redirect } = await authenticate.admin(request);
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
 
-  // For embedded apps, redirect out to Shopify admin pricing plans if not subscribed
-  const { hasActivePayment } = await billing.check();
+  const data: LoaderData = {
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    shop: session.shop,
+  };
 
-  if (!hasActivePayment) {
-    // IMPORTANT: replace with your actual app handle from the Partner Dashboard / app listing URL
-    // Example handle would look like "synorai-ecocharge"
-    const appHandle = "synorai-ecocharge";
-
-    const shop = session.shop; // e.g. "cool-shop.myshopify.com"
-    const storeHandle = shop.replace(".myshopify.com", "");
-
-    return redirect(
-      `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`,
-      { target: "_top" }
-    );
-  }
-
-  const data: LoaderData = { shop: session.shop };
   return data;
-}
+};
 
 export default function AppLayout() {
-  const { shop } = useLoaderData() as LoaderData;
+  const { apiKey, shop } = useLoaderData<typeof loader>();
 
   return (
-    <PolarisAppProvider i18n={enTranslations}>
-      <Frame>
-        <div style={{ padding: 12, fontSize: 12, opacity: 0.7 }}>
-          Current shop: {shop}
-        </div>
-        <Outlet />
-      </Frame>
-    </PolarisAppProvider>
+    <AppProvider embedded apiKey={apiKey}>
+      <PolarisAppProvider i18n={enTranslations}>
+        <Frame>
+          <NavMenu>
+            <Link to="/app" rel="home">
+              Home
+            </Link>
+            <Link to="/app/settings">Settings</Link>
+          </NavMenu>
+
+          {/* optional debug */}
+          <div style={{ padding: 12, fontSize: 12, opacity: 0.7 }}>
+            Current shop: {shop}
+          </div>
+
+          <Outlet />
+        </Frame>
+      </PolarisAppProvider>
+    </AppProvider>
   );
 }
+
+// Shopify needs React Router to catch thrown responses so auth headers are preserved.
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
+}
+
+export const headers: HeadersFunction = (headersArgs) => {
+  return boundary.headers(headersArgs);
+};
