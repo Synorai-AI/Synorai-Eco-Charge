@@ -7,24 +7,40 @@ import { authenticate } from "../shopify.server";
 type LoaderData = {
   apiKey: string;
   hasActivePayment: boolean;
-  shop: string;
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing, session } = await authenticate.admin(request);
+  const { admin } = await authenticate.admin(request);
 
-  const billingCheck = await billing.check();
-  const hasActivePayment = billingCheck.hasActivePayment;
+  const response = await admin.graphql(`
+    query ActiveSubscriptions {
+      appInstallation {
+        activeSubscriptions {
+          id
+          name
+          status
+        }
+      }
+    }
+  `);
+
+  const responseJson = await response.json();
+
+  const activeSubscriptions =
+    responseJson?.data?.appInstallation?.activeSubscriptions ?? [];
+
+  const hasActivePayment = activeSubscriptions.some(
+    (subscription: { status?: string }) => subscription.status === "ACTIVE",
+  );
 
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
     hasActivePayment,
-    shop: session.shop,
   };
 };
 
 export default function App() {
-  const { hasActivePayment } = useLoaderData<typeof loader>() as LoaderData;
+  const { hasActivePayment } = useLoaderData() as LoaderData;
 
   return (
     <AppProvider isEmbeddedApp>
@@ -62,9 +78,8 @@ export default function App() {
             </p>
 
             <p style={{ lineHeight: 1.6 }}>
-              Please open the app through Shopify and choose a pricing plan from
-              the Shopify-managed billing flow. Once your subscription is active,
-              reload the app and continue setup.
+              Please subscribe to a plan in Shopify billing, then reload the app
+              and continue setup.
             </p>
 
             <p style={{ marginBottom: 0, lineHeight: 1.6 }}>
