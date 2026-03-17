@@ -2,7 +2,7 @@
 
 client_id = "6a8e1a956bb0c2301764cac00a74b0bf"
 name = "Synorai EcoCharge"
-application_url = "https://eco-fee-automator.onrender.com"
+application_url = "https://eco-fee-automator.onrender.com/app"
 embedded = true
 
 [build]
@@ -11,16 +11,15 @@ automatically_update_urls_on_dev = true
 [webhooks]
 api_version = "2026-04"
 
-[[webhooks.subscriptions]]
-uri = "/webhooks"
-compliance_topics = [
-  "customers/data_request",
-  "customers/redact",
-  "shop/redact"
-]
+  [[webhooks.subscriptions]]
+  uri = "https://eco-fee-automator.onrender.com/webhooks"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
 
 [access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "write_cart_transforms,write_products"
+optional_scopes = [ ]
+use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
