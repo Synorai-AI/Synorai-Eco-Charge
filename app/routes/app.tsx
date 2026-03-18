@@ -40,10 +40,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export default function App() {
-  const { hasActivePayment } = useLoaderData() as LoaderData;
+  const { apiKey, hasActivePayment } = useLoaderData() as LoaderData;
 
   return (
-    <AppProvider isEmbeddedApp>
+    <AppProvider apiKey={apiKey} isEmbeddedApp>
       {hasActivePayment ? (
         <Outlet />
       ) : (
