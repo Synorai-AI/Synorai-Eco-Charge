@@ -31,7 +31,6 @@ const PROVINCE_OPTIONS = [
 type LoaderData = {
   shopDomain: string;
   currentProvince: Province | null;
-
   functionId: string | null;
   cartTransformId: string | null;
   isTransformActive: boolean;
@@ -39,7 +38,7 @@ type LoaderData = {
 
 type ActionData =
   | { ok: true; kind: "province"; province: Province }
-  | { ok: true; kind: "transform"; cartTransformId: string }
+  | { ok: true; kind: "transform"; cartTransformId: string; repaired: boolean }
   | { ok: false; error: string };
 
 function isProvince(value: string): value is Province {
@@ -70,7 +69,7 @@ async function getFunctionId(admin: any): Promise<string | null> {
       n.apiType === "cart_transform" &&
       (n.title === "eco-fee-cart-transform" ||
         n.title === "eco-fee-cart-transform (production)" ||
-        n.title.includes("eco-fee-cart-transform"))
+        n.title.includes("eco-fee-cart-transform")),
   );
 
   return match?.id ?? null;
@@ -78,7 +77,7 @@ async function getFunctionId(admin: any): Promise<string | null> {
 
 async function getCartTransformForFunction(
   admin: any,
-  functionId: string
+  functionId: string,
 ): Promise<{ cartTransformId: string | null }> {
   const query = `#graphql
     query GetCartTransforms {
@@ -102,9 +101,41 @@ async function getCartTransformForFunction(
   return { cartTransformId: match?.id ?? null };
 }
 
+async function deleteCartTransform(
+  admin: any,
+  cartTransformId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const mutation = `#graphql
+    mutation DeleteCartTransform($id: ID!) {
+      cartTransformDelete(id: $id) {
+        deletedId
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const res = await admin.graphql(mutation, {
+    variables: { id: cartTransformId },
+  });
+  const json = await res.json();
+
+  const errs = json?.data?.cartTransformDelete?.userErrors ?? [];
+  if (errs.length > 0) {
+    return {
+      ok: false,
+      error: errs.map((e: any) => e.message).join(", "),
+    };
+  }
+
+  return { ok: true };
+}
+
 async function createCartTransform(
   admin: any,
-  functionId: string
+  functionId: string,
 ): Promise<{ cartTransformId: string | null; error?: string }> {
   const mutation = `#graphql
     mutation CreateCartTransform($functionId: String!) {
@@ -188,7 +219,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "").trim();
 
-  if (intent === "activateTransform") {
+  if (intent === "activateTransform" || intent === "repairTransform") {
     const functionId = await getFunctionId(admin);
     if (!functionId) {
       return Response.json({
@@ -198,12 +229,24 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     const existing = await getCartTransformForFunction(admin, functionId);
-    if (existing.cartTransformId) {
+
+    if (intent === "activateTransform" && existing.cartTransformId) {
       return Response.json({
         ok: true,
         kind: "transform",
         cartTransformId: existing.cartTransformId,
+        repaired: false,
       });
+    }
+
+    if (intent === "repairTransform" && existing.cartTransformId) {
+      const deleted = await deleteCartTransform(admin, existing.cartTransformId);
+      if (!deleted.ok) {
+        return Response.json({
+          ok: false,
+          error: deleted.error ?? "Failed to delete existing Cart Transform.",
+        });
+      }
     }
 
     const created = await createCartTransform(admin, functionId);
@@ -218,6 +261,7 @@ export async function action({ request }: ActionFunctionArgs) {
       ok: true,
       kind: "transform",
       cartTransformId: created.cartTransformId,
+      repaired: intent === "repairTransform",
     });
   }
 
@@ -311,7 +355,11 @@ export default function SettingsRoute() {
 
     if (activateFetcher.data.ok) {
       setErrorMessage(null);
-      setSuccessMessage("EcoCharge fees were enabled successfully.");
+      setSuccessMessage(
+        activateFetcher.data.repaired
+          ? "EcoCharge Cart Transform was repaired successfully."
+          : "EcoCharge Cart Transform is active.",
+      );
     } else {
       setSuccessMessage(null);
       setErrorMessage(activateFetcher.data.error);
@@ -336,6 +384,16 @@ export default function SettingsRoute() {
 
     const fd = new FormData();
     fd.set("intent", "activateTransform");
+
+    activateFetcher.submit(fd, { method: "post" });
+  };
+
+  const handleRepair = () => {
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    const fd = new FormData();
+    fd.set("intent", "repairTransform");
 
     activateFetcher.submit(fd, { method: "post" });
   };
@@ -368,8 +426,7 @@ export default function SettingsRoute() {
             </InlineStack>
 
             <Text as="p" variant="bodyMd">
-              EcoCharge applies fee adjustments using a Shopify Cart Transform
-              function.
+              EcoCharge applies fee adjustments using a Shopify Cart Transform function.
             </Text>
 
             {loaderData.cartTransformId && (
@@ -378,16 +435,26 @@ export default function SettingsRoute() {
               </Text>
             )}
 
-            {!isTransformActive && (
+            <InlineStack gap="300">
+              {!isTransformActive && (
+                <Button
+                  variant="primary"
+                  onClick={handleActivate}
+                  loading={isActivating}
+                  disabled={isActivating}
+                >
+                  Enable EcoCharge Fees
+                </Button>
+              )}
+
               <Button
-                variant="primary"
-                onClick={handleActivate}
+                onClick={handleRepair}
                 loading={isActivating}
                 disabled={isActivating}
               >
-                Enable EcoCharge Fees
+                Repair Cart Transform
               </Button>
-            )}
+            </InlineStack>
           </BlockStack>
         </Card>
 
@@ -398,9 +465,8 @@ export default function SettingsRoute() {
             </Text>
 
             <Text as="p" variant="bodyMd">
-              This is the fallback province used when the customer hasn’t
-              selected a shipping province (pickup / no shipping chosen). It
-              does not collect fees — it only adjusts line item prices.
+              This is the fallback province used when the customer has not selected a
+              shipping province. It does not collect fees; it only adjusts line item prices.
             </Text>
 
             {successMessage && (
