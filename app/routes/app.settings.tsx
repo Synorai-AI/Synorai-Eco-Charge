@@ -1,6 +1,13 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useFetcher, useLoaderData } from "react-router";
+import {
+  createStandardFeeProduct,
+  ensureStandardFeeProductVariants,
+  getStandardFeeVariantMap,
+  saveStandardFeeProductId,
+  saveStandardFeeVariantMap,
+} from "../lib/standard-fee-product.server";
 
 import {
   Page,
@@ -15,12 +22,12 @@ import {
 } from "@shopify/polaris";
 
 import { authenticate } from "../shopify.server";
+import { ALLOWED_PROVINCES, type ProvinceCode } from "../lib/eco-fees";
 
 const METAFIELD_NAMESPACE = "synorai_ecocharge";
 const METAFIELD_KEY = "jurisdiction";
 
-const ALLOWED_PROVINCES = ["AB", "BC", "SK"] as const;
-type Province = (typeof ALLOWED_PROVINCES)[number];
+type Province = ProvinceCode;
 
 const PROVINCE_OPTIONS = [
   { label: "Alberta (AB)", value: "AB" },
@@ -28,21 +35,71 @@ const PROVINCE_OPTIONS = [
   { label: "Saskatchewan (SK)", value: "SK" },
 ];
 
+type StoreCapability = "development" | "plus" | "standard";
+type ActiveMode = "standard_fee_product" | "pro_cart_transform";
+
 type LoaderData = {
   shopDomain: string;
   currentProvince: Province | null;
+
+  storeCapability: StoreCapability;
+  isDevelopmentStore: boolean;
+  isPlusStore: boolean;
+  hasActivePayment: boolean;
+
+  activeMode: ActiveMode;
+
   functionId: string | null;
   cartTransformId: string | null;
   isTransformActive: boolean;
+
+  standardFeeProductId: string | null;
+  standardVariantMapExists: boolean;
+  isStandardSetupComplete: boolean;
 };
 
 type ActionData =
   | { ok: true; kind: "province"; province: Province }
   | { ok: true; kind: "transform"; cartTransformId: string; repaired: boolean }
+  | { ok: true; kind: "standard_setup"; feeProductId: string; repaired: boolean }
   | { ok: false; error: string };
 
 function isProvince(value: string): value is Province {
   return (ALLOWED_PROVINCES as readonly string[]).includes(value);
+}
+
+function normalizePlanName(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function detectStoreCapability(plan: {
+  partnerDevelopment?: boolean | null;
+  publicDisplayName?: string | null;
+}): StoreCapability {
+  if (plan?.partnerDevelopment) return "development";
+
+  const displayName = normalizePlanName(plan?.publicDisplayName);
+  if (displayName.includes("plus")) return "plus";
+
+  return "standard";
+}
+
+function getCapabilityLabel(capability: StoreCapability): string {
+  switch (capability) {
+    case "development":
+      return "Development store";
+    case "plus":
+      return "Shopify Plus";
+    case "standard":
+    default:
+      return "Standard Shopify store";
+  }
+}
+
+function getModeLabel(mode: ActiveMode): string {
+  return mode === "pro_cart_transform"
+    ? "Pro Cart Transform Mode"
+    : "Standard Fee Product Mode";
 }
 
 async function getFunctionId(admin: any): Promise<string | null> {
@@ -175,24 +232,104 @@ async function createCartTransform(
   return { cartTransformId: id };
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const { admin, session } = await authenticate.admin(request);
-
-  const provinceQuery = `#graphql
-    query GetSettings {
+async function getStoreContext(admin: any): Promise<{
+  shopId: string | null;
+  currentProvince: Province | null;
+  storeCapability: StoreCapability;
+  isDevelopmentStore: boolean;
+  isPlusStore: boolean;
+}> {
+  const query = `#graphql
+    query GetStoreContext {
       shop {
+        id
+        plan {
+          partnerDevelopment
+          publicDisplayName
+        }
         metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${METAFIELD_KEY}") {
           value
         }
       }
     }
   `;
-  const provinceRes = await admin.graphql(provinceQuery);
-  const provinceJson = await provinceRes.json();
 
-  const raw = provinceJson?.data?.shop?.metafield?.value;
+  const res = await admin.graphql(query);
+  const json = await res.json();
+
+  const shop = json?.data?.shop;
+  const rawProvince = shop?.metafield?.value;
   const currentProvince =
-    typeof raw === "string" && isProvince(raw) ? raw : null;
+    typeof rawProvince === "string" && isProvince(rawProvince)
+      ? rawProvince
+      : null;
+
+  const capability = detectStoreCapability(shop?.plan);
+  const isDevelopmentStore = capability === "development";
+  const isPlusStore = capability === "plus";
+
+  return {
+    shopId: shop?.id ?? null,
+    currentProvince,
+    storeCapability: capability,
+    isDevelopmentStore,
+    isPlusStore,
+  };
+}
+
+async function getStandardSetupState(admin: any): Promise<{
+  standardFeeProductId: string | null;
+  standardVariantMapExists: boolean;
+  isStandardSetupComplete: boolean;
+}> {
+  const query = `#graphql
+    query GetStandardSetupState {
+      shop {
+        feeProductId: metafield(
+          namespace: "${METAFIELD_NAMESPACE}"
+          key: "standard_fee_product_id"
+        ) {
+          value
+        }
+        feeVariantMap: metafield(
+          namespace: "${METAFIELD_NAMESPACE}"
+          key: "standard_fee_variant_map"
+        ) {
+          value
+        }
+      }
+    }
+  `;
+
+  const res = await admin.graphql(query);
+  const json = await res.json();
+
+  const rawProductId = json?.data?.shop?.feeProductId?.value;
+  const rawVariantMap = json?.data?.shop?.feeVariantMap?.value;
+
+  const standardFeeProductId =
+    typeof rawProductId === "string" && rawProductId.trim().length > 0
+      ? rawProductId.trim()
+      : null;
+
+  const standardVariantMapExists =
+    typeof rawVariantMap === "string" && rawVariantMap.trim().length > 0;
+
+  return {
+    standardFeeProductId,
+    standardVariantMapExists,
+    isStandardSetupComplete: Boolean(
+      standardFeeProductId && standardVariantMapExists,
+    ),
+  };
+}
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const { admin, session } = await authenticate.admin(request);
+
+  const storeContext = await getStoreContext(admin);
+
+  const hasActivePayment = storeContext.isDevelopmentStore ? false : true;
 
   const functionId = await getFunctionId(admin);
   let cartTransformId: string | null = null;
@@ -202,12 +339,31 @@ export async function loader({ request }: LoaderFunctionArgs) {
     cartTransformId = found.cartTransformId;
   }
 
+  const standardSetup = await getStandardSetupState(admin);
+
+  const activeMode: ActiveMode =
+    storeContext.isDevelopmentStore || storeContext.isPlusStore
+      ? "pro_cart_transform"
+      : "standard_fee_product";
+
   const data: LoaderData = {
     shopDomain: session.shop,
-    currentProvince,
+    currentProvince: storeContext.currentProvince,
+
+    storeCapability: storeContext.storeCapability,
+    isDevelopmentStore: storeContext.isDevelopmentStore,
+    isPlusStore: storeContext.isPlusStore,
+    hasActivePayment,
+
+    activeMode,
+
     functionId,
     cartTransformId,
     isTransformActive: Boolean(cartTransformId),
+
+    standardFeeProductId: standardSetup.standardFeeProductId,
+    standardVariantMapExists: standardSetup.standardVariantMapExists,
+    isStandardSetupComplete: standardSetup.isStandardSetupComplete,
   };
 
   return Response.json(data);
@@ -265,6 +421,74 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
+if (intent === "setupStandardFeeProduct" || intent === "repairStandardFeeProduct") {
+  const storeContext = await getStoreContext(admin);
+  const shopId = storeContext.shopId;
+
+  if (!shopId) {
+    return Response.json({
+      ok: false,
+      error: "Unable to resolve Shop ID for Standard fee product setup.",
+    });
+  }
+
+  const result = await createStandardFeeProduct(admin);
+
+  if (!result.ok) {
+    return Response.json({
+      ok: false,
+      error: result.error,
+    });
+  }
+
+  const ensured = await ensureStandardFeeProductVariants(admin, result.productId);
+  if (!ensured.ok) {
+    return Response.json({
+      ok: false,
+      error: ensured.error,
+    });
+  }
+
+  const variantMapResult = await getStandardFeeVariantMap(admin, result.productId);
+  if (!variantMapResult.ok) {
+    return Response.json({
+      ok: false,
+      error: variantMapResult.error,
+    });
+  }
+
+  const savedProductId = await saveStandardFeeProductId(
+    admin,
+    shopId,
+    result.productId,
+  );
+  if (!savedProductId.ok) {
+    return Response.json({
+      ok: false,
+      error: savedProductId.error,
+    });
+  }
+
+  const savedVariantMap = await saveStandardFeeVariantMap(
+    admin,
+    shopId,
+    variantMapResult.variantMap,
+  );
+  if (!savedVariantMap.ok) {
+    return Response.json({
+      ok: false,
+      error: savedVariantMap.error,
+    });
+  }
+
+  return Response.json({
+    ok: true,
+    kind: "standard_setup",
+    feeProductId: result.productId,
+    repaired: intent === "repairStandardFeeProduct",
+  });
+}
+
   if (intent === "saveProvince") {
     const provinceRaw = formData.get("province");
     const province = typeof provinceRaw === "string" ? provinceRaw.trim() : "";
@@ -273,14 +497,8 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({ ok: false, error: "Invalid province selected." });
     }
 
-    const shopIdQuery = `#graphql
-      query GetShopId {
-        shop { id }
-      }
-    `;
-    const shopIdRes = await admin.graphql(shopIdQuery);
-    const shopIdJson = await shopIdRes.json();
-    const shopId = shopIdJson?.data?.shop?.id;
+    const storeContext = await getStoreContext(admin);
+    const shopId = storeContext.shopId;
 
     if (!shopId) {
       return Response.json({
@@ -330,7 +548,7 @@ export async function action({ request }: ActionFunctionArgs) {
 export default function SettingsRoute() {
   const loaderData = useLoaderData() as LoaderData;
 
-  const activateFetcher = useFetcher<ActionData>();
+  const modeFetcher = useFetcher<ActionData>();
   const saveFetcher = useFetcher<ActionData>();
 
   const initialProvince = useMemo<Province>(() => {
@@ -341,8 +559,8 @@ export default function SettingsRoute() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const isActivating = activateFetcher.state !== "idle";
-  const isSaving = saveFetcher.state !== "idle";
+  const isModeActionLoading = modeFetcher.state !== "idle";
+  const isSavingProvince = saveFetcher.state !== "idle";
 
   useEffect(() => {
     setProvince(initialProvince);
@@ -351,20 +569,29 @@ export default function SettingsRoute() {
   }, [initialProvince, loaderData.shopDomain]);
 
   useEffect(() => {
-    if (activateFetcher.state !== "idle" || !activateFetcher.data) return;
+    if (modeFetcher.state !== "idle" || !modeFetcher.data) return;
 
-    if (activateFetcher.data.ok) {
+    if (modeFetcher.data.ok) {
       setErrorMessage(null);
-      setSuccessMessage(
-        activateFetcher.data.repaired
-          ? "EcoCharge Cart Transform was repaired successfully."
-          : "EcoCharge Cart Transform is active.",
-      );
+
+      if (modeFetcher.data.kind === "transform") {
+        setSuccessMessage(
+          modeFetcher.data.repaired
+            ? "EcoCharge Cart Transform was repaired successfully."
+            : "EcoCharge Cart Transform is active.",
+        );
+      } else if (modeFetcher.data.kind === "standard_setup") {
+        setSuccessMessage(
+          modeFetcher.data.repaired
+            ? "Standard fee product setup was repaired successfully."
+            : "Standard fee product setup completed successfully.",
+        );
+      }
     } else {
       setSuccessMessage(null);
-      setErrorMessage(activateFetcher.data.error);
+      setErrorMessage(modeFetcher.data.error);
     }
-  }, [activateFetcher.state, activateFetcher.data]);
+  }, [modeFetcher.state, modeFetcher.data]);
 
   useEffect(() => {
     if (saveFetcher.state !== "idle" || !saveFetcher.data) return;
@@ -378,27 +605,23 @@ export default function SettingsRoute() {
     }
   }, [saveFetcher.state, saveFetcher.data]);
 
-  const handleActivate = () => {
+  const handleModeIntent = (
+    intent:
+      | "activateTransform"
+      | "repairTransform"
+      | "setupStandardFeeProduct"
+      | "repairStandardFeeProduct",
+  ) => {
     setSuccessMessage(null);
     setErrorMessage(null);
 
     const fd = new FormData();
-    fd.set("intent", "activateTransform");
+    fd.set("intent", intent);
 
-    activateFetcher.submit(fd, { method: "post" });
+    modeFetcher.submit(fd, { method: "post" });
   };
 
-  const handleRepair = () => {
-    setSuccessMessage(null);
-    setErrorMessage(null);
-
-    const fd = new FormData();
-    fd.set("intent", "repairTransform");
-
-    activateFetcher.submit(fd, { method: "post" });
-  };
-
-  const handleSave = () => {
+  const handleSaveProvince = () => {
     setSuccessMessage(null);
     setErrorMessage(null);
 
@@ -409,54 +632,179 @@ export default function SettingsRoute() {
     saveFetcher.submit(fd, { method: "post" });
   };
 
-  const isTransformActive = loaderData.isTransformActive;
+  const statusActive =
+    loaderData.activeMode === "pro_cart_transform"
+      ? loaderData.isTransformActive
+      : loaderData.isStandardSetupComplete;
 
   return (
     <Page title="EcoCharge Settings">
       <BlockStack gap="400">
+        {successMessage && (
+          <Banner title="Success" tone="success">
+            <p>{successMessage}</p>
+          </Banner>
+        )}
+
+        {errorMessage && (
+          <Banner title="Action failed" tone="critical">
+            <p>{errorMessage}</p>
+          </Banner>
+        )}
+
         <Card>
           <BlockStack gap="300">
             <InlineStack align="space-between">
               <Text as="h2" variant="headingMd">
                 EcoCharge Status
               </Text>
-              <Badge tone={isTransformActive ? "success" : "warning"}>
-                {isTransformActive ? "Active" : "Not active"}
+              <Badge tone={statusActive ? "success" : "warning"}>
+                {statusActive ? "Active" : "Needs setup"}
               </Badge>
             </InlineStack>
 
-            <Text as="p" variant="bodyMd">
-              EcoCharge applies fee adjustments using a Shopify Cart Transform function.
-            </Text>
-
-            {loaderData.cartTransformId && (
-              <Text as="p" variant="bodySm" tone="subdued">
-                Cart Transform ID: {loaderData.cartTransformId}
+            <BlockStack gap="200">
+              <Text as="p" variant="bodyMd">
+                <strong>Mode:</strong> {getModeLabel(loaderData.activeMode)}
               </Text>
-            )}
-
-            <InlineStack gap="300">
-              {!isTransformActive && (
-                <Button
-                  variant="primary"
-                  onClick={handleActivate}
-                  loading={isActivating}
-                  disabled={isActivating}
-                >
-                  Enable EcoCharge Fees
-                </Button>
-              )}
-
-              <Button
-                onClick={handleRepair}
-                loading={isActivating}
-                disabled={isActivating}
-              >
-                Repair Cart Transform
-              </Button>
-            </InlineStack>
+              <Text as="p" variant="bodyMd">
+                <strong>Store capability:</strong>{" "}
+                {getCapabilityLabel(loaderData.storeCapability)}
+              </Text>
+              <Text as="p" variant="bodyMd">
+                <strong>Billing:</strong>{" "}
+                {loaderData.hasActivePayment ? "Active" : "Inactive"}
+              </Text>
+            </BlockStack>
           </BlockStack>
         </Card>
+
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">
+              Store Summary
+            </Text>
+
+            <BlockStack gap="200">
+              <Text as="p" variant="bodyMd">
+                <strong>Current shop:</strong> {loaderData.shopDomain}
+              </Text>
+              <Text as="p" variant="bodyMd">
+                <strong>Development store:</strong>{" "}
+                {loaderData.isDevelopmentStore ? "Yes" : "No"}
+              </Text>
+              <Text as="p" variant="bodyMd">
+                <strong>Shopify Plus:</strong>{" "}
+                {loaderData.isPlusStore ? "Yes" : "No"}
+              </Text>
+            </BlockStack>
+          </BlockStack>
+        </Card>
+
+        {loaderData.activeMode === "standard_fee_product" && (
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between">
+                <Text as="h2" variant="headingMd">
+                  Standard Fee Product Mode
+                </Text>
+                <Badge tone={loaderData.isStandardSetupComplete ? "success" : "warning"}>
+                  {loaderData.isStandardSetupComplete ? "Configured" : "Not configured"}
+                </Badge>
+              </InlineStack>
+
+              <Text as="p" variant="bodyMd">
+                Standard stores use separate app-controlled environmental fee line items
+                in the cart. This mode does not modify the original product line.
+              </Text>
+
+              <BlockStack gap="100">
+                {loaderData.standardFeeProductId ? (
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Fee Product ID: {loaderData.standardFeeProductId}
+                  </Text>
+                ) : (
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Fee Product ID: not saved yet
+                  </Text>
+                )}
+
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Variant map:{" "}
+                  {loaderData.standardVariantMapExists ? "saved" : "not saved yet"}
+                </Text>
+              </BlockStack>
+
+              <InlineStack gap="300">
+                {!loaderData.isStandardSetupComplete && (
+                  <Button
+                    variant="primary"
+                    onClick={() => handleModeIntent("setupStandardFeeProduct")}
+                    loading={isModeActionLoading}
+                    disabled={isModeActionLoading}
+                  >
+                    Set Up Standard Fee Product
+                  </Button>
+                )}
+
+                <Button
+                  onClick={() => handleModeIntent("repairStandardFeeProduct")}
+                  loading={isModeActionLoading}
+                  disabled={isModeActionLoading}
+                >
+                  Repair Standard Fee Setup
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          </Card>
+        )}
+
+        {loaderData.activeMode === "pro_cart_transform" && (
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between">
+                <Text as="h2" variant="headingMd">
+                  Pro Cart Transform Mode
+                </Text>
+                <Badge tone={loaderData.isTransformActive ? "success" : "warning"}>
+                  {loaderData.isTransformActive ? "Configured" : "Not configured"}
+                </Badge>
+              </InlineStack>
+
+              <Text as="p" variant="bodyMd">
+                Pro mode applies environmental fee adjustments using a Shopify Cart
+                Transform where supported.
+              </Text>
+
+              {loaderData.cartTransformId && (
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Cart Transform ID: {loaderData.cartTransformId}
+                </Text>
+              )}
+
+              <InlineStack gap="300">
+                {!loaderData.isTransformActive && (
+                  <Button
+                    variant="primary"
+                    onClick={() => handleModeIntent("activateTransform")}
+                    loading={isModeActionLoading}
+                    disabled={isModeActionLoading}
+                  >
+                    Enable EcoCharge Fees
+                  </Button>
+                )}
+
+                <Button
+                  onClick={() => handleModeIntent("repairTransform")}
+                  loading={isModeActionLoading}
+                  disabled={isModeActionLoading}
+                >
+                  Repair Cart Transform
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          </Card>
+        )}
 
         <Card>
           <BlockStack gap="300">
@@ -465,21 +813,10 @@ export default function SettingsRoute() {
             </Text>
 
             <Text as="p" variant="bodyMd">
-              This is the fallback province used when the customer has not selected a
-              shipping province. It does not collect fees; it only adjusts line item prices.
+              This is the store-level compliance province used by EcoCharge. Standard
+              mode uses it for fee product calculations, and Pro mode uses it for cart
+              transform fee calculations.
             </Text>
-
-            {successMessage && (
-              <Banner title="Success" tone="success">
-                <p>{successMessage}</p>
-              </Banner>
-            )}
-
-            {errorMessage && (
-              <Banner title="Action failed" tone="critical">
-                <p>{errorMessage}</p>
-              </Banner>
-            )}
 
             <InlineStack gap="300" align="space-between">
               <div style={{ minWidth: 280 }}>
@@ -487,23 +824,19 @@ export default function SettingsRoute() {
                   label="Province"
                   options={PROVINCE_OPTIONS}
                   value={province}
-                  onChange={(v) => setProvince(v as Province)}
+                  onChange={(value) => setProvince(value as Province)}
                 />
               </div>
 
               <Button
                 variant="primary"
-                onClick={handleSave}
-                loading={isSaving}
-                disabled={isSaving}
+                onClick={handleSaveProvince}
+                loading={isSavingProvince}
+                disabled={isSavingProvince}
               >
                 Save
               </Button>
             </InlineStack>
-
-            <Text as="p" variant="bodySm" tone="subdued">
-              Current shop: {loaderData.shopDomain}
-            </Text>
           </BlockStack>
         </Card>
       </BlockStack>
