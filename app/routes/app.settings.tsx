@@ -1,13 +1,6 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useFetcher, useLoaderData } from "react-router";
-import {
-  createStandardFeeProduct,
-  ensureStandardFeeProductVariants,
-  getStandardFeeVariantMap,
-  saveStandardFeeProductId,
-  saveStandardFeeVariantMap,
-} from "../lib/standard-fee-product.server";
 
 import {
   Page,
@@ -23,9 +16,17 @@ import {
 
 import { authenticate } from "../shopify.server";
 import { ALLOWED_PROVINCES, type ProvinceCode } from "../lib/eco-fees";
+import {
+  createStandardFeeProduct,
+  ensureStandardFeeProductVariants,
+  getStandardFeeVariantMap,
+  saveStandardFeeProductId,
+  saveStandardFeeVariantMap,
+} from "../lib/standard-fee-product.server";
 
 const METAFIELD_NAMESPACE = "synorai_ecocharge";
 const METAFIELD_KEY = "jurisdiction";
+const DEV_MODE_OVERRIDE_KEY = "dev_mode_override";
 
 type Province = ProvinceCode;
 
@@ -37,6 +38,13 @@ const PROVINCE_OPTIONS = [
 
 type StoreCapability = "development" | "plus" | "standard";
 type ActiveMode = "standard_fee_product" | "pro_cart_transform";
+type DevModeOverride = "" | "standard_fee_product" | "pro_cart_transform";
+
+const DEV_MODE_OPTIONS = [
+  { label: "Automatic (recommended)", value: "" },
+  { label: "Force Pro Cart Transform Mode", value: "pro_cart_transform" },
+  { label: "Force Standard Fee Product Mode", value: "standard_fee_product" },
+];
 
 type LoaderData = {
   shopDomain: string;
@@ -47,6 +55,7 @@ type LoaderData = {
   isPlusStore: boolean;
   hasActivePayment: boolean;
 
+  devModeOverride: DevModeOverride;
   activeMode: ActiveMode;
 
   functionId: string | null;
@@ -60,12 +69,21 @@ type LoaderData = {
 
 type ActionData =
   | { ok: true; kind: "province"; province: Province }
+  | { ok: true; kind: "dev_mode_override"; value: DevModeOverride }
   | { ok: true; kind: "transform"; cartTransformId: string; repaired: boolean }
   | { ok: true; kind: "standard_setup"; feeProductId: string; repaired: boolean }
   | { ok: false; error: string };
 
 function isProvince(value: string): value is Province {
   return (ALLOWED_PROVINCES as readonly string[]).includes(value);
+}
+
+function isDevModeOverride(value: string): value is DevModeOverride {
+  return (
+    value === "" ||
+    value === "standard_fee_product" ||
+    value === "pro_cart_transform"
+  );
 }
 
 function normalizePlanName(value: unknown): string {
@@ -100,6 +118,20 @@ function getModeLabel(mode: ActiveMode): string {
   return mode === "pro_cart_transform"
     ? "Pro Cart Transform Mode"
     : "Standard Fee Product Mode";
+}
+
+function resolveActiveMode(params: {
+  isDevelopmentStore: boolean;
+  isPlusStore: boolean;
+  devModeOverride: DevModeOverride;
+}): ActiveMode {
+  if (params.isDevelopmentStore && params.devModeOverride) {
+    return params.devModeOverride;
+  }
+
+  return params.isDevelopmentStore || params.isPlusStore
+    ? "pro_cart_transform"
+    : "standard_fee_product";
 }
 
 async function getFunctionId(admin: any): Promise<string | null> {
@@ -238,6 +270,7 @@ async function getStoreContext(admin: any): Promise<{
   storeCapability: StoreCapability;
   isDevelopmentStore: boolean;
   isPlusStore: boolean;
+  devModeOverride: DevModeOverride;
 }> {
   const query = `#graphql
     query GetStoreContext {
@@ -247,7 +280,10 @@ async function getStoreContext(admin: any): Promise<{
           partnerDevelopment
           publicDisplayName
         }
-        metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${METAFIELD_KEY}") {
+        province: metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${METAFIELD_KEY}") {
+          value
+        }
+        devModeOverride: metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${DEV_MODE_OVERRIDE_KEY}") {
           value
         }
       }
@@ -258,7 +294,12 @@ async function getStoreContext(admin: any): Promise<{
   const json = await res.json();
 
   const shop = json?.data?.shop;
-  const rawProvince = shop?.metafield?.value;
+  const rawProvince = shop?.province?.value;
+  const rawOverride =
+    typeof shop?.devModeOverride?.value === "string"
+      ? shop.devModeOverride.value.trim()
+      : "";
+
   const currentProvince =
     typeof rawProvince === "string" && isProvince(rawProvince)
       ? rawProvince
@@ -268,12 +309,17 @@ async function getStoreContext(admin: any): Promise<{
   const isDevelopmentStore = capability === "development";
   const isPlusStore = capability === "plus";
 
+  const devModeOverride: DevModeOverride = isDevModeOverride(rawOverride)
+    ? rawOverride
+    : "";
+
   return {
     shopId: shop?.id ?? null,
     currentProvince,
     storeCapability: capability,
     isDevelopmentStore,
     isPlusStore,
+    devModeOverride,
   };
 }
 
@@ -324,11 +370,51 @@ async function getStandardSetupState(admin: any): Promise<{
   };
 }
 
+async function saveShopMetafield(params: {
+  admin: any;
+  shopId: string;
+  key: string;
+  value: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const mutation = `#graphql
+    mutation SaveShopMetafield($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields { namespace key value }
+        userErrors { field message }
+      }
+    }
+  `;
+
+  const variables = {
+    metafields: [
+      {
+        ownerId: params.shopId,
+        namespace: METAFIELD_NAMESPACE,
+        key: params.key,
+        type: "single_line_text_field",
+        value: params.value,
+      },
+    ],
+  };
+
+  const res = await params.admin.graphql(mutation, { variables });
+  const json = await res.json();
+
+  const userErrors = json?.data?.metafieldsSet?.userErrors ?? [];
+  if (userErrors.length > 0) {
+    return {
+      ok: false,
+      error: userErrors.map((e: any) => e.message).join(", "),
+    };
+  }
+
+  return { ok: true };
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
 
   const storeContext = await getStoreContext(admin);
-
   const hasActivePayment = storeContext.isDevelopmentStore ? false : true;
 
   const functionId = await getFunctionId(admin);
@@ -341,10 +427,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const standardSetup = await getStandardSetupState(admin);
 
-  const activeMode: ActiveMode =
-    storeContext.isDevelopmentStore || storeContext.isPlusStore
-      ? "pro_cart_transform"
-      : "standard_fee_product";
+  const activeMode = resolveActiveMode({
+    isDevelopmentStore: storeContext.isDevelopmentStore,
+    isPlusStore: storeContext.isPlusStore,
+    devModeOverride: storeContext.devModeOverride,
+  });
 
   const data: LoaderData = {
     shopDomain: session.shop,
@@ -355,6 +442,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     isPlusStore: storeContext.isPlusStore,
     hasActivePayment,
 
+    devModeOverride: storeContext.devModeOverride,
     activeMode,
 
     functionId,
@@ -421,73 +509,124 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-if (intent === "setupStandardFeeProduct" || intent === "repairStandardFeeProduct") {
-  const storeContext = await getStoreContext(admin);
-  const shopId = storeContext.shopId;
+  if (intent === "setupStandardFeeProduct" || intent === "repairStandardFeeProduct") {
+    const storeContext = await getStoreContext(admin);
+    const shopId = storeContext.shopId;
 
-  if (!shopId) {
+    if (!shopId) {
+      return Response.json({
+        ok: false,
+        error: "Unable to resolve Shop ID for Standard fee product setup.",
+      });
+    }
+
+    const result = await createStandardFeeProduct(admin);
+
+    if (!result.ok) {
+      return Response.json({
+        ok: false,
+        error: result.error,
+      });
+    }
+
+    const ensured = await ensureStandardFeeProductVariants(admin, result.productId);
+    if (!ensured.ok) {
+      return Response.json({
+        ok: false,
+        error: ensured.error,
+      });
+    }
+
+    const variantMapResult = await getStandardFeeVariantMap(admin, result.productId);
+    if (!variantMapResult.ok) {
+      return Response.json({
+        ok: false,
+        error: variantMapResult.error,
+      });
+    }
+
+    const savedProductId = await saveStandardFeeProductId(
+      admin,
+      shopId,
+      result.productId,
+    );
+    if (!savedProductId.ok) {
+      return Response.json({
+        ok: false,
+        error: savedProductId.error,
+      });
+    }
+
+    const savedVariantMap = await saveStandardFeeVariantMap(
+      admin,
+      shopId,
+      variantMapResult.variantMap,
+    );
+    if (!savedVariantMap.ok) {
+      return Response.json({
+        ok: false,
+        error: savedVariantMap.error,
+      });
+    }
+
     return Response.json({
-      ok: false,
-      error: "Unable to resolve Shop ID for Standard fee product setup.",
+      ok: true,
+      kind: "standard_setup",
+      feeProductId: result.productId,
+      repaired: intent === "repairStandardFeeProduct",
     });
   }
 
-  const result = await createStandardFeeProduct(admin);
+  if (intent === "saveDevModeOverride") {
+    const storeContext = await getStoreContext(admin);
+    const shopId = storeContext.shopId;
 
-  if (!result.ok) {
+    if (!shopId) {
+      return Response.json({
+        ok: false,
+        error: "Unable to resolve Shop ID for dev mode override.",
+      });
+    }
+
+    if (!storeContext.isDevelopmentStore) {
+      return Response.json({
+        ok: false,
+        error: "Dev mode override is only available on development stores.",
+      });
+    }
+
+    const rawValue =
+      typeof formData.get("devModeOverride") === "string"
+        ? String(formData.get("devModeOverride")).trim()
+        : "";
+
+    if (!isDevModeOverride(rawValue)) {
+      return Response.json({
+        ok: false,
+        error: "Invalid development mode override selected.",
+      });
+    }
+
+    const saved = await saveShopMetafield({
+      admin,
+      shopId,
+      key: DEV_MODE_OVERRIDE_KEY,
+      value: rawValue,
+    });
+
+    if (!saved.ok) {
+      return Response.json({
+        ok: false,
+        error: saved.error,
+      });
+    }
+
     return Response.json({
-      ok: false,
-      error: result.error,
+      ok: true,
+      kind: "dev_mode_override",
+      value: rawValue,
     });
   }
-
-  const ensured = await ensureStandardFeeProductVariants(admin, result.productId);
-  if (!ensured.ok) {
-    return Response.json({
-      ok: false,
-      error: ensured.error,
-    });
-  }
-
-  const variantMapResult = await getStandardFeeVariantMap(admin, result.productId);
-  if (!variantMapResult.ok) {
-    return Response.json({
-      ok: false,
-      error: variantMapResult.error,
-    });
-  }
-
-  const savedProductId = await saveStandardFeeProductId(
-    admin,
-    shopId,
-    result.productId,
-  );
-  if (!savedProductId.ok) {
-    return Response.json({
-      ok: false,
-      error: savedProductId.error,
-    });
-  }
-
-  const savedVariantMap = await saveStandardFeeVariantMap(
-    admin,
-    shopId,
-    variantMapResult.variantMap,
-  );
-  if (!savedVariantMap.ok) {
-    return Response.json({
-      ok: false,
-      error: savedVariantMap.error,
-    });
-  }
-
-  return Response.json({
-    ok: true,
-    kind: "standard_setup",
-    feeProductId: result.productId,
-    repaired: intent === "repairStandardFeeProduct",
-  });
-}
 
   if (intent === "saveProvince") {
     const provinceRaw = formData.get("province");
@@ -507,35 +646,17 @@ if (intent === "setupStandardFeeProduct" || intent === "repairStandardFeeProduct
       });
     }
 
-    const mutation = `#graphql
-      mutation SetComplianceProvince($metafields: [MetafieldsSetInput!]!) {
-        metafieldsSet(metafields: $metafields) {
-          metafields { namespace key value }
-          userErrors { field message }
-        }
-      }
-    `;
+    const saved = await saveShopMetafield({
+      admin,
+      shopId,
+      key: METAFIELD_KEY,
+      value: province,
+    });
 
-    const variables = {
-      metafields: [
-        {
-          ownerId: shopId,
-          namespace: METAFIELD_NAMESPACE,
-          key: METAFIELD_KEY,
-          type: "single_line_text_field",
-          value: province,
-        },
-      ],
-    };
-
-    const writeRes = await admin.graphql(mutation, { variables });
-    const writeJson = await writeRes.json();
-
-    const userErrors = writeJson?.data?.metafieldsSet?.userErrors ?? [];
-    if (userErrors.length > 0) {
+    if (!saved.ok) {
       return Response.json({
         ok: false,
-        error: userErrors.map((e: any) => e.message).join(", "),
+        error: saved.error,
       });
     }
 
@@ -550,23 +671,29 @@ export default function SettingsRoute() {
 
   const modeFetcher = useFetcher<ActionData>();
   const saveFetcher = useFetcher<ActionData>();
+  const overrideFetcher = useFetcher<ActionData>();
 
   const initialProvince = useMemo<Province>(() => {
     return loaderData.currentProvince ?? "AB";
   }, [loaderData.currentProvince]);
 
   const [province, setProvince] = useState<Province>(initialProvince);
+  const [devModeOverride, setDevModeOverride] = useState<DevModeOverride>(
+    loaderData.devModeOverride,
+  );
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const isModeActionLoading = modeFetcher.state !== "idle";
   const isSavingProvince = saveFetcher.state !== "idle";
+  const isSavingOverride = overrideFetcher.state !== "idle";
 
   useEffect(() => {
     setProvince(initialProvince);
+    setDevModeOverride(loaderData.devModeOverride);
     setSuccessMessage(null);
     setErrorMessage(null);
-  }, [initialProvince, loaderData.shopDomain]);
+  }, [initialProvince, loaderData.shopDomain, loaderData.devModeOverride]);
 
   useEffect(() => {
     if (modeFetcher.state !== "idle" || !modeFetcher.data) return;
@@ -605,6 +732,18 @@ export default function SettingsRoute() {
     }
   }, [saveFetcher.state, saveFetcher.data]);
 
+  useEffect(() => {
+    if (overrideFetcher.state !== "idle" || !overrideFetcher.data) return;
+
+    if (overrideFetcher.data.ok) {
+      setErrorMessage(null);
+      setSuccessMessage("Development mode override was updated successfully.");
+    } else {
+      setSuccessMessage(null);
+      setErrorMessage(overrideFetcher.data.error);
+    }
+  }, [overrideFetcher.state, overrideFetcher.data]);
+
   const handleModeIntent = (
     intent:
       | "activateTransform"
@@ -630,6 +769,17 @@ export default function SettingsRoute() {
     fd.set("province", province);
 
     saveFetcher.submit(fd, { method: "post" });
+  };
+
+  const handleSaveDevModeOverride = () => {
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    const fd = new FormData();
+    fd.set("intent", "saveDevModeOverride");
+    fd.set("devModeOverride", devModeOverride);
+
+    overrideFetcher.submit(fd, { method: "post" });
   };
 
   const statusActive =
@@ -700,6 +850,44 @@ export default function SettingsRoute() {
             </BlockStack>
           </BlockStack>
         </Card>
+
+        {loaderData.isDevelopmentStore && (
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Development Mode Override
+              </Text>
+
+              <Text as="p" variant="bodyMd">
+                This temporary test control is only available on development stores.
+                Leave it on Automatic for normal behavior, or force Standard mode to
+                test the non-Plus fee product flow.
+              </Text>
+
+              <InlineStack gap="300" align="space-between">
+                <div style={{ minWidth: 320 }}>
+                  <Select
+                    label="Mode override"
+                    options={DEV_MODE_OPTIONS}
+                    value={devModeOverride}
+                    onChange={(value) =>
+                      setDevModeOverride(value as DevModeOverride)
+                    }
+                  />
+                </div>
+
+                <Button
+                  variant="primary"
+                  onClick={handleSaveDevModeOverride}
+                  loading={isSavingOverride}
+                  disabled={isSavingOverride}
+                >
+                  Save Override
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          </Card>
+        )}
 
         {loaderData.activeMode === "standard_fee_product" && (
           <Card>
