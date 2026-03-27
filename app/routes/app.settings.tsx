@@ -27,6 +27,7 @@ import {
 const METAFIELD_NAMESPACE = "synorai_ecocharge";
 const METAFIELD_KEY = "jurisdiction";
 const DEV_MODE_OVERRIDE_KEY = "dev_mode_override";
+const EFFECTIVE_MODE_KEY = "effective_mode";
 
 type Province = ProvinceCode;
 
@@ -57,6 +58,7 @@ type LoaderData = {
 
   devModeOverride: DevModeOverride;
   activeMode: ActiveMode;
+  savedEffectiveMode: ActiveMode | null;
 
   functionId: string | null;
   cartTransformId: string | null;
@@ -69,7 +71,12 @@ type LoaderData = {
 
 type ActionData =
   | { ok: true; kind: "province"; province: Province }
-  | { ok: true; kind: "dev_mode_override"; value: DevModeOverride }
+  | {
+      ok: true;
+      kind: "dev_mode_override";
+      value: DevModeOverride;
+      effectiveMode: ActiveMode;
+    }
   | { ok: true; kind: "transform"; cartTransformId: string; repaired: boolean }
   | { ok: true; kind: "standard_setup"; feeProductId: string; repaired: boolean }
   | { ok: false; error: string };
@@ -78,12 +85,12 @@ function isProvince(value: string): value is Province {
   return (ALLOWED_PROVINCES as readonly string[]).includes(value);
 }
 
+function isActiveMode(value: string): value is ActiveMode {
+  return value === "standard_fee_product" || value === "pro_cart_transform";
+}
+
 function isDevModeOverride(value: string): value is DevModeOverride {
-  return (
-    value === "" ||
-    value === "standard_fee_product" ||
-    value === "pro_cart_transform"
-  );
+  return value === "" || isActiveMode(value);
 }
 
 function normalizePlanName(value: unknown): string {
@@ -271,6 +278,7 @@ async function getStoreContext(admin: any): Promise<{
   isDevelopmentStore: boolean;
   isPlusStore: boolean;
   devModeOverride: DevModeOverride;
+  savedEffectiveMode: ActiveMode | null;
 }> {
   const query = `#graphql
     query GetStoreContext {
@@ -286,6 +294,9 @@ async function getStoreContext(admin: any): Promise<{
         devModeOverride: metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${DEV_MODE_OVERRIDE_KEY}") {
           value
         }
+        effectiveMode: metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${EFFECTIVE_MODE_KEY}") {
+          value
+        }
       }
     }
   `;
@@ -298,6 +309,10 @@ async function getStoreContext(admin: any): Promise<{
   const rawOverride =
     typeof shop?.devModeOverride?.value === "string"
       ? shop.devModeOverride.value.trim()
+      : "";
+  const rawEffectiveMode =
+    typeof shop?.effectiveMode?.value === "string"
+      ? shop.effectiveMode.value.trim()
       : "";
 
   const currentProvince =
@@ -313,6 +328,10 @@ async function getStoreContext(admin: any): Promise<{
     ? rawOverride
     : "";
 
+  const savedEffectiveMode: ActiveMode | null = isActiveMode(rawEffectiveMode)
+    ? rawEffectiveMode
+    : null;
+
   return {
     shopId: shop?.id ?? null,
     currentProvince,
@@ -320,6 +339,7 @@ async function getStoreContext(admin: any): Promise<{
     isDevelopmentStore,
     isPlusStore,
     devModeOverride,
+    savedEffectiveMode,
   };
 }
 
@@ -411,11 +431,47 @@ async function saveShopMetafield(params: {
   return { ok: true };
 }
 
+async function saveEffectiveMode(params: {
+  admin: any;
+  shopId: string;
+  effectiveMode: ActiveMode;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  return saveShopMetafield({
+    admin: params.admin,
+    shopId: params.shopId,
+    key: EFFECTIVE_MODE_KEY,
+    value: params.effectiveMode,
+  });
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
 
   const storeContext = await getStoreContext(admin);
   const hasActivePayment = storeContext.isDevelopmentStore ? false : true;
+
+   const activeMode = resolveActiveMode({
+    isDevelopmentStore: storeContext.isDevelopmentStore,
+    isPlusStore: storeContext.isPlusStore,
+    devModeOverride: storeContext.devModeOverride,
+  });
+
+  let persistedEffectiveMode = storeContext.savedEffectiveMode;
+
+  if (
+    storeContext.shopId &&
+    storeContext.savedEffectiveMode !== activeMode
+  ) {
+    const saved = await saveEffectiveMode({
+      admin,
+      shopId: storeContext.shopId,
+      effectiveMode: activeMode,
+    });
+
+    if (saved.ok) {
+      persistedEffectiveMode = activeMode;
+    }
+  }
 
   const functionId = await getFunctionId(admin);
   let cartTransformId: string | null = null;
@@ -426,12 +482,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   const standardSetup = await getStandardSetupState(admin);
-
-  const activeMode = resolveActiveMode({
-    isDevelopmentStore: storeContext.isDevelopmentStore,
-    isPlusStore: storeContext.isPlusStore,
-    devModeOverride: storeContext.devModeOverride,
-  });
 
   const data: LoaderData = {
     shopDomain: session.shop,
@@ -444,6 +494,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
     devModeOverride: storeContext.devModeOverride,
     activeMode,
+    savedEffectiveMode: persistedEffectiveMode,
 
     functionId,
     cartTransformId,
@@ -607,17 +658,36 @@ export async function action({ request }: ActionFunctionArgs) {
       });
     }
 
-    const saved = await saveShopMetafield({
+    const savedOverride = await saveShopMetafield({
       admin,
       shopId,
       key: DEV_MODE_OVERRIDE_KEY,
       value: rawValue,
     });
 
-    if (!saved.ok) {
+    if (!savedOverride.ok) {
       return Response.json({
         ok: false,
-        error: saved.error,
+        error: savedOverride.error,
+      });
+    }
+
+    const effectiveMode = resolveActiveMode({
+      isDevelopmentStore: storeContext.isDevelopmentStore,
+      isPlusStore: storeContext.isPlusStore,
+      devModeOverride: rawValue,
+    });
+
+    const savedEffectiveMode = await saveEffectiveMode({
+      admin,
+      shopId,
+      effectiveMode,
+    });
+
+    if (!savedEffectiveMode.ok) {
+      return Response.json({
+        ok: false,
+        error: savedEffectiveMode.error,
       });
     }
 
@@ -625,6 +695,7 @@ export async function action({ request }: ActionFunctionArgs) {
       ok: true,
       kind: "dev_mode_override",
       value: rawValue,
+      effectiveMode,
     });
   }
 
@@ -816,6 +887,12 @@ export default function SettingsRoute() {
             <BlockStack gap="200">
               <Text as="p" variant="bodyMd">
                 <strong>Mode:</strong> {getModeLabel(loaderData.activeMode)}
+              </Text>
+              <Text as="p" variant="bodyMd">
+                <strong>Saved effective mode:</strong>{" "}
+                {loaderData.savedEffectiveMode
+                  ? getModeLabel(loaderData.savedEffectiveMode)
+                  : "Not saved yet"}
               </Text>
               <Text as="p" variant="bodyMd">
                 <strong>Store capability:</strong>{" "}
