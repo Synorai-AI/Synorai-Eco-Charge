@@ -1,0 +1,53 @@
+{% liquid
+  assign province = shop.metafields.synorai_ecocharge.jurisdiction.value
+  assign fee_product_id = shop.metafields.synorai_ecocharge.standard_fee_product_id.value
+  assign variant_map_json = shop.metafields.synorai_ecocharge.standard_fee_variant_map.value
+  assign effective_mode = shop.metafields.synorai_ecocharge.effective_mode.value
+
+  assign is_standard_mode = false
+
+  if effective_mode == 'standard_fee_product'
+    assign is_standard_mode = true
+  endif
+%}
+
+<script id="synorai-ecocharge-standard-debug" type="application/json">
+  {
+    "province": {{ province | json }},
+    "feeProductId": {{ fee_product_id | json }},
+    "variantMapRaw": {{ variant_map_json | json }},
+    "effectiveMode": {{ effective_mode | json }},
+    "isStandardMode": {{ is_standard_mode | json }},
+    "debugEnabled": {{ block.settings.debug | json }}
+  }
+</script>
+
+{% if is_standard_mode and province != blank and fee_product_id != blank and variant_map_json != blank %}
+  <script id="synorai-ecocharge-standard-config" type="application/json">
+    {
+      "enabled": true,
+      "mode": "standard_fee_product",
+      "province": {{ province | json }},
+      "feeProductId": {{ fee_product_id | json }},
+      "variantMapJson": {{ variant_map_json | json }},
+      "autoRun": true,
+      "debug": {{ block.settings.debug | json }}
+    }
+  </script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "EcoCharge Standard",
+  "target": "body",
+  "javascript": "synorai-ecocharge-standard.js",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "debug",
+      "label": "Enable storefront debug logging",
+      "default": true
+    }
+  ]
+}
+{% endschema %}
