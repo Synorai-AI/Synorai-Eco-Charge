@@ -13,10 +13,33 @@ import {
 
 const NO_CHANGES: CartTransformRunResult = { operations: [] };
 
+function normalizeEffectiveMode(value: string | null | undefined) {
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim();
+
+  if (
+    normalized === "pro_cart_transform" ||
+    normalized === "standard_fee_product"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
 export function cartTransformRun(
   input: CartTransformRunInput,
 ): CartTransformRunResult {
   const operations: CartTransformRunResult["operations"] = [];
+
+  const effectiveMode = normalizeEffectiveMode(
+    input?.shop?.effectiveMode?.value,
+  );
+
+  if (effectiveMode !== "pro_cart_transform") {
+    return NO_CHANGES;
+  }
 
   const provinceCode = normalizeProvinceCode(input?.shop?.jurisdiction?.value);
   const provinceConfig = getProvinceConfig(provinceCode);

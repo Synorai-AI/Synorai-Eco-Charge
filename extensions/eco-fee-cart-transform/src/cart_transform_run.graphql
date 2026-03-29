@@ -27,8 +27,6 @@ query CartTransformRunInput {
                 "eco-category-display-large"
                 "eco-category-display-xlarge"
                 "eco-category-all-in-one"
-
-                # Optional legacy / extra tags still supported by current function code
                 "eco-category-monitor-small"
                 "eco-category-monitor-large"
                 "eco-category-monitor-xlarge"
@@ -47,6 +45,9 @@ query CartTransformRunInput {
 
   shop {
     jurisdiction: metafield(namespace: "synorai_ecocharge", key: "jurisdiction") {
+      value
+    }
+    effectiveMode: metafield(namespace: "synorai_ecocharge", key: "effective_mode") {
       value
     }
   }
