@@ -20,6 +20,7 @@ import {
   createStandardFeeProduct,
   ensureStandardFeeProductVariants,
   getStandardFeeVariantMap,
+  normalizeStandardFeeProduct,
   normalizeStandardFeeProductVariants,
   saveStandardFeeProductId,
   saveStandardFeeVariantMap,
@@ -584,6 +585,17 @@ export async function action({ request }: ActionFunctionArgs) {
       });
     }
 
+    const normalizedProduct = await normalizeStandardFeeProduct(
+      admin,
+      result.productId,
+    );
+    if (!normalizedProduct.ok) {
+      return Response.json({
+        ok: false,
+        error: normalizedProduct.error,
+      });
+    }
+
     const ensured = await ensureStandardFeeProductVariants(admin, result.productId);
     if (!ensured.ok) {
       return Response.json({
@@ -592,14 +604,14 @@ export async function action({ request }: ActionFunctionArgs) {
       });
     }
 
-    const normalized = await normalizeStandardFeeProductVariants(
+    const normalizedVariants = await normalizeStandardFeeProductVariants(
       admin,
       result.productId,
     );
-    if (!normalized.ok) {
+    if (!normalizedVariants.ok) {
       return Response.json({
         ok: false,
-        error: normalized.error,
+        error: normalizedVariants.error,
       });
     }
 
