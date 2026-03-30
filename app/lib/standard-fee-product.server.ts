@@ -22,11 +22,23 @@ export type StandardFeeProductResult =
       error: string;
     };
 
+
 export type StandardFeeVariantEnsureResult =
   | {
       ok: true;
       createdCount: number;
       totalRequired: number;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+export type StandardFeeVariantNormalizationResult =
+  | {
+      ok: true;
+      updatedCount: number;
+      totalChecked: number;
     }
   | {
       ok: false;
@@ -46,6 +58,12 @@ type ProductVariantNode = {
   id: string;
   title?: string;
   price?: string;
+  taxable?: boolean;
+  requiresShipping?: boolean;
+  inventoryItem?: {
+    id: string;
+    tracked?: boolean;
+  } | null;
 };
 
 type RequiredVariant = {
@@ -277,6 +295,12 @@ async function getExistingProductVariants(
             id
             title
             price
+            taxable
+            inventoryItem {
+              id
+              tracked
+            }
+            requiresShipping
           }
         }
       }
@@ -292,6 +316,76 @@ async function getExistingProductVariants(
     json?.data?.product?.variants?.nodes ?? [];
 
   return nodes;
+}
+
+export async function normalizeStandardFeeProductVariants(
+  admin: AdminGraphqlClient,
+  productId: string,
+): Promise<StandardFeeVariantNormalizationResult> {
+  const existingVariants = await getExistingProductVariants(admin, productId);
+
+  const variantsNeedingUpdate = existingVariants.filter((variant) => {
+    return (
+      variant.taxable !== false ||
+      variant.requiresShipping !== false ||
+      variant.inventoryItem?.tracked !== false
+    );
+  });
+
+  if (variantsNeedingUpdate.length === 0) {
+    return {
+      ok: true,
+      updatedCount: 0,
+      totalChecked: existingVariants.length,
+    };
+  }
+
+  const mutation = `#graphql
+    mutation UpdateStandardFeeVariants(
+      $productId: ID!
+      $variants: [ProductVariantsBulkInput!]!
+    ) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        productVariants {
+          id
+          title
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const variables = {
+    productId,
+    variants: variantsNeedingUpdate.map((variant) => ({
+      id: variant.id,
+      taxable: false,
+      requiresShipping: false,
+      inventoryItem: {
+        tracked: false,
+      },
+    })),
+  };
+
+  const res = await admin.graphql(mutation, { variables });
+  const json = await res.json();
+
+  const userErrors = json?.data?.productVariantsBulkUpdate?.userErrors ?? [];
+  if (userErrors.length > 0) {
+    return {
+      ok: false,
+      error: userErrors.map((e: any) => e.message).join(", "),
+    };
+  }
+
+  return {
+    ok: true,
+    updatedCount: variantsNeedingUpdate.length,
+    totalChecked: existingVariants.length,
+  };
 }
 
 export async function ensureStandardFeeProductVariants(

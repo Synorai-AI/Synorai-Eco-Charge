@@ -20,6 +20,7 @@ import {
   createStandardFeeProduct,
   ensureStandardFeeProductVariants,
   getStandardFeeVariantMap,
+  normalizeStandardFeeProductVariants,
   saveStandardFeeProductId,
   saveStandardFeeVariantMap,
 } from "../lib/standard-fee-product.server";
@@ -450,7 +451,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const storeContext = await getStoreContext(admin);
   const hasActivePayment = storeContext.isDevelopmentStore ? false : true;
 
-   const activeMode = resolveActiveMode({
+  const activeMode = resolveActiveMode({
     isDevelopmentStore: storeContext.isDevelopmentStore,
     isPlusStore: storeContext.isPlusStore,
     devModeOverride: storeContext.devModeOverride,
@@ -560,7 +561,10 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  if (intent === "setupStandardFeeProduct" || intent === "repairStandardFeeProduct") {
+  if (
+    intent === "setupStandardFeeProduct" ||
+    intent === "repairStandardFeeProduct"
+  ) {
     const storeContext = await getStoreContext(admin);
     const shopId = storeContext.shopId;
 
@@ -588,7 +592,21 @@ export async function action({ request }: ActionFunctionArgs) {
       });
     }
 
-    const variantMapResult = await getStandardFeeVariantMap(admin, result.productId);
+    const normalized = await normalizeStandardFeeProductVariants(
+      admin,
+      result.productId,
+    );
+    if (!normalized.ok) {
+      return Response.json({
+        ok: false,
+        error: normalized.error,
+      });
+    }
+
+    const variantMapResult = await getStandardFeeVariantMap(
+      admin,
+      result.productId,
+    );
     if (!variantMapResult.ok) {
       return Response.json({
         ok: false,
@@ -973,8 +991,12 @@ export default function SettingsRoute() {
                 <Text as="h2" variant="headingMd">
                   Standard Fee Product Mode
                 </Text>
-                <Badge tone={loaderData.isStandardSetupComplete ? "success" : "warning"}>
-                  {loaderData.isStandardSetupComplete ? "Configured" : "Not configured"}
+                <Badge
+                  tone={loaderData.isStandardSetupComplete ? "success" : "warning"}
+                >
+                  {loaderData.isStandardSetupComplete
+                    ? "Configured"
+                    : "Not configured"}
                 </Badge>
               </InlineStack>
 
