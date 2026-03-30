@@ -10,10 +10,6 @@ const STANDARD_FEE_PRODUCT_TITLE = "Synorai Environmental Handling Fee";
 const STANDARD_FEE_PRODUCT_VENDOR = "Synorai";
 const STANDARD_FEE_PRODUCT_TYPE = "Synorai Eco Fee";
 const STANDARD_FEE_PRODUCT_TAG = "synorai-eco-fee";
-const ONLINE_STORE_PUBLICATION_NAMES = new Set([
-  "online store",
-  "online store channel",
-]);
 
 export type StandardFeeProductResult =
   | {
@@ -25,6 +21,7 @@ export type StandardFeeProductResult =
       ok: false;
       error: string;
     };
+
 
 export type StandardFeeVariantEnsureResult =
   | {
@@ -42,17 +39,6 @@ export type StandardFeeVariantNormalizationResult =
       ok: true;
       updatedCount: number;
       totalChecked: number;
-    }
-  | {
-      ok: false;
-      error: string;
-    };
-
-export type StandardFeeProductNormalizationResult =
-  | {
-      ok: true;
-      publishedToOnlineStore: boolean;
-      changed: boolean;
     }
   | {
       ok: false;
@@ -77,30 +63,6 @@ type ProductVariantNode = {
   inventoryItem?: {
     id: string;
     tracked?: boolean;
-  } | null;
-};
-
-type PublicationNode = {
-  id: string;
-  name?: string;
-};
-
-type ProductPublicationNode = {
-  publication?: {
-    id: string;
-  } | null;
-  isPublished: boolean;
-};
-
-type StandardFeeProductNode = {
-  id: string;
-  title?: string;
-  vendor?: string;
-  productType?: string;
-  tags?: string[];
-  status?: string;
-  resourcePublications?: {
-    nodes?: ProductPublicationNode[];
   } | null;
 };
 
@@ -153,91 +115,6 @@ function getRequiredFeeVariants(): RequiredVariant[] {
   }
 
   return variants;
-}
-
-async function getSalesChannelPublications(
-  admin: AdminGraphqlClient,
-): Promise<
-  | { ok: true; publications: PublicationNode[] }
-  | { ok: false; error: string }
-> {
-  const query = `#graphql
-    query GetSalesChannelPublications {
-      publications(first: 50) {
-        nodes {
-          id
-          name
-        }
-      }
-    }
-  `;
-
-  const res = await admin.graphql(query);
-  const json = await res.json();
-
-  const publications: PublicationNode[] =
-    json?.data?.publications?.nodes ?? [];
-
-  return {
-    ok: true,
-    publications,
-  };
-}
-
-async function getStandardFeeProductDetails(
-  admin: AdminGraphqlClient,
-  productId: string,
-): Promise<StandardFeeProductNode | null> {
-  const query = `#graphql
-    query GetStandardFeeProductDetails($id: ID!) {
-      product(id: $id) {
-        id
-        title
-        vendor
-        productType
-        tags
-        status
-        resourcePublications(first: 50) {
-          nodes {
-            isPublished
-            publication {
-              id
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const res = await admin.graphql(query, {
-    variables: { id: productId },
-  });
-  const json = await res.json();
-
-  return json?.data?.product ?? null;
-}
-
-function findOnlineStorePublicationId(
-  publications: PublicationNode[],
-): string | null {
-  const match = publications.find((publication) => {
-    const normalized = (publication.name ?? "").trim().toLowerCase();
-    return ONLINE_STORE_PUBLICATION_NAMES.has(normalized);
-  });
-
-  return match?.id ?? null;
-}
-
-function isPublishedToPublication(
-  product: StandardFeeProductNode | null,
-  publicationId: string,
-): boolean {
-  const nodes = product?.resourcePublications?.nodes ?? [];
-  return nodes.some(
-    (node) =>
-      node?.isPublished === true &&
-      node?.publication?.id === publicationId,
-  );
 }
 
 export async function findStandardFeeProduct(
@@ -439,94 +316,6 @@ async function getExistingProductVariants(
     json?.data?.product?.variants?.nodes ?? [];
 
   return nodes;
-}
-
-export async function normalizeStandardFeeProduct(
-  admin: AdminGraphqlClient,
-  productId: string,
-): Promise<StandardFeeProductNormalizationResult> {
-  const publicationsResult = await getSalesChannelPublications(admin);
-  if (!publicationsResult.ok) {
-    return publicationsResult;
-  }
-
-  const onlineStorePublicationId = findOnlineStorePublicationId(
-    publicationsResult.publications,
-  );
-
-  if (!onlineStorePublicationId) {
-    return {
-      ok: false,
-      error:
-        "Unable to find the Online Store publication for Standard fee product setup.",
-    };
-  }
-
-  const product = await getStandardFeeProductDetails(admin, productId);
-  if (!product?.id) {
-    return {
-      ok: false,
-      error: "Unable to load Standard fee product details for normalization.",
-    };
-  }
-
-  const alreadyPublished = isPublishedToPublication(
-    product,
-    onlineStorePublicationId,
-  );
-
-  if (alreadyPublished) {
-    return {
-      ok: true,
-      publishedToOnlineStore: true,
-      changed: false,
-    };
-  }
-
-  const mutation = `#graphql
-    mutation PublishStandardFeeProduct($id: ID!, $input: [PublicationInput!]!) {
-      publishablePublish(id: $id, input: $input) {
-        publishable {
-          availablePublicationsCount {
-            count
-          }
-        }
-        shop {
-          id
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const variables = {
-    id: productId,
-    input: [
-      {
-        publicationId: onlineStorePublicationId,
-      },
-    ],
-  };
-
-  const res = await admin.graphql(mutation, { variables });
-  const json = await res.json();
-
-  const userErrors = json?.data?.publishablePublish?.userErrors ?? [];
-  if (userErrors.length > 0) {
-    return {
-      ok: false,
-      error: userErrors.map((e: any) => e.message).join(", "),
-    };
-  }
-
-  return {
-    ok: true,
-    publishedToOnlineStore: true,
-    changed: true,
-  };
 }
 
 export async function normalizeStandardFeeProductVariants(

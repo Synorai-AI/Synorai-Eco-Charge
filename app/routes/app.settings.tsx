@@ -592,14 +592,14 @@ export async function action({ request }: ActionFunctionArgs) {
       });
     }
 
-    const normalizedVariants = await normalizeStandardFeeProductVariants(
+    const normalized = await normalizeStandardFeeProductVariants(
       admin,
       result.productId,
     );
-    if (!normalizedVariants.ok) {
+    if (!normalized.ok) {
       return Response.json({
         ok: false,
-        error: normalizedVariants.error,
+        error: normalized.error,
       });
     }
 
