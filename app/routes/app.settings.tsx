@@ -20,7 +20,6 @@ import {
   createStandardFeeProduct,
   ensureStandardFeeProductVariants,
   getStandardFeeVariantMap,
-  normalizeStandardFeeProduct,
   normalizeStandardFeeProductVariants,
   saveStandardFeeProductId,
   saveStandardFeeVariantMap,
@@ -582,17 +581,6 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({
         ok: false,
         error: result.error,
-      });
-    }
-
-    const normalizedProduct = await normalizeStandardFeeProduct(
-      admin,
-      result.productId,
-    );
-    if (!normalizedProduct.ok) {
-      return Response.json({
-        ok: false,
-        error: normalizedProduct.error,
       });
     }
 
