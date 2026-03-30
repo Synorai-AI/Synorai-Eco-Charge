@@ -22,7 +22,6 @@ export type StandardFeeProductResult =
       error: string;
     };
 
-
 export type StandardFeeVariantEnsureResult =
   | {
       ok: true;
@@ -117,122 +116,176 @@ function getRequiredFeeVariants(): RequiredVariant[] {
   return variants;
 }
 
+function serializeError(error: unknown): string {
+  if (error instanceof Error) {
+    const plain: Record<string, unknown> = {};
+
+    for (const key of Object.getOwnPropertyNames(error)) {
+      plain[key] = (error as any)[key];
+    }
+
+    try {
+      return JSON.stringify(plain, null, 2);
+    } catch {
+      return `${error.name}: ${error.message}`;
+    }
+  }
+
+  try {
+    return JSON.stringify(error, null, 2);
+  } catch {
+    return String(error);
+  }
+}
+
+function logStandardFeeError(context: string, error: unknown) {
+  console.error(`[standard-fee-product] ${context}`);
+  console.error(serializeError(error));
+}
+
+function getReadableErrorMessage(
+  fallback: string,
+  error: unknown,
+): string {
+  if (error instanceof Error && error.message) {
+    return `${fallback} ${error.message}`;
+  }
+
+  return fallback;
+}
+
 export async function findStandardFeeProduct(
   admin: AdminGraphqlClient,
 ): Promise<{ productId: string | null }> {
-  const query = `#graphql
-    query FindStandardFeeProduct($search: String!) {
-      products(first: 10, query: $search) {
-        nodes {
-          id
-          title
-          vendor
-          productType
-          tags
+  try {
+    const query = `#graphql
+      query FindStandardFeeProduct($search: String!) {
+        products(first: 10, query: $search) {
+          nodes {
+            id
+            title
+            vendor
+            productType
+            tags
+          }
         }
       }
-    }
-  `;
+    `;
 
-  const search = [
-    `title:"${STANDARD_FEE_PRODUCT_TITLE}"`,
-    `vendor:${STANDARD_FEE_PRODUCT_VENDOR}`,
-    `tag:${STANDARD_FEE_PRODUCT_TAG}`,
-  ].join(" ");
+    const search = [
+      `title:"${STANDARD_FEE_PRODUCT_TITLE}"`,
+      `vendor:${STANDARD_FEE_PRODUCT_VENDOR}`,
+      `tag:${STANDARD_FEE_PRODUCT_TAG}`,
+    ].join(" ");
 
-  const res = await admin.graphql(query, {
-    variables: { search },
-  });
-  const json = await res.json();
+    const res = await admin.graphql(query, {
+      variables: { search },
+    });
+    const json = await res.json();
 
-  const nodes: Array<{
-    id: string;
-    title?: string;
-    vendor?: string;
-    productType?: string;
-    tags?: string[];
-  }> = json?.data?.products?.nodes ?? [];
+    const nodes: Array<{
+      id: string;
+      title?: string;
+      vendor?: string;
+      productType?: string;
+      tags?: string[];
+    }> = json?.data?.products?.nodes ?? [];
 
-  const exact = nodes.find((node) => {
-    const tags = Array.isArray(node.tags) ? node.tags : [];
-    return (
-      node.title === STANDARD_FEE_PRODUCT_TITLE &&
-      node.vendor === STANDARD_FEE_PRODUCT_VENDOR &&
-      node.productType === STANDARD_FEE_PRODUCT_TYPE &&
-      tags.includes(STANDARD_FEE_PRODUCT_TAG)
-    );
-  });
+    const exact = nodes.find((node) => {
+      const tags = Array.isArray(node.tags) ? node.tags : [];
+      return (
+        node.title === STANDARD_FEE_PRODUCT_TITLE &&
+        node.vendor === STANDARD_FEE_PRODUCT_VENDOR &&
+        node.productType === STANDARD_FEE_PRODUCT_TYPE &&
+        tags.includes(STANDARD_FEE_PRODUCT_TAG)
+      );
+    });
 
-  return {
-    productId: exact?.id ?? null,
-  };
+    return {
+      productId: exact?.id ?? null,
+    };
+  } catch (error) {
+    logStandardFeeError("findStandardFeeProduct failed", error);
+    return { productId: null };
+  }
 }
 
 export async function createStandardFeeProduct(
   admin: AdminGraphqlClient,
 ): Promise<StandardFeeProductResult> {
-  const existing = await findStandardFeeProduct(admin);
-  if (existing.productId) {
-    return {
-      ok: true,
-      productId: existing.productId,
-      created: false,
-    };
-  }
+  try {
+    const existing = await findStandardFeeProduct(admin);
+    if (existing.productId) {
+      return {
+        ok: true,
+        productId: existing.productId,
+        created: false,
+      };
+    }
 
-  const mutation = `#graphql
-    mutation CreateStandardFeeProduct($input: ProductCreateInput!) {
-      productCreate(product: $input) {
-        product {
-          id
-          title
-          vendor
-          productType
-          tags
-          status
-        }
-        userErrors {
-          field
-          message
+    const mutation = `#graphql
+      mutation CreateStandardFeeProduct($input: ProductCreateInput!) {
+        productCreate(product: $input) {
+          product {
+            id
+            title
+            vendor
+            productType
+            tags
+            status
+          }
+          userErrors {
+            field
+            message
+          }
         }
       }
+    `;
+
+    const variables = {
+      input: {
+        title: STANDARD_FEE_PRODUCT_TITLE,
+        vendor: STANDARD_FEE_PRODUCT_VENDOR,
+        productType: STANDARD_FEE_PRODUCT_TYPE,
+        tags: [STANDARD_FEE_PRODUCT_TAG],
+        status: "ACTIVE",
+      },
+    };
+
+    const res = await admin.graphql(mutation, { variables });
+    const json = await res.json();
+
+    const userErrors = json?.data?.productCreate?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      return {
+        ok: false,
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
     }
-  `;
 
-  const variables = {
-    input: {
-      title: STANDARD_FEE_PRODUCT_TITLE,
-      vendor: STANDARD_FEE_PRODUCT_VENDOR,
-      productType: STANDARD_FEE_PRODUCT_TYPE,
-      tags: [STANDARD_FEE_PRODUCT_TAG],
-      status: "ACTIVE",
-    },
-  };
+    const productId = json?.data?.productCreate?.product?.id ?? null;
+    if (!productId) {
+      return {
+        ok: false,
+        error: "Product creation returned no product ID.",
+      };
+    }
 
-  const res = await admin.graphql(mutation, { variables });
-  const json = await res.json();
-
-  const userErrors = json?.data?.productCreate?.userErrors ?? [];
-  if (userErrors.length > 0) {
+    return {
+      ok: true,
+      productId,
+      created: true,
+    };
+  } catch (error) {
+    logStandardFeeError("createStandardFeeProduct failed", error);
     return {
       ok: false,
-      error: userErrors.map((e: any) => e.message).join(", "),
+      error: getReadableErrorMessage(
+        "Standard fee product creation failed.",
+        error,
+      ),
     };
   }
-
-  const productId = json?.data?.productCreate?.product?.id ?? null;
-  if (!productId) {
-    return {
-      ok: false,
-      error: "Product creation returned no product ID.",
-    };
-  }
-
-  return {
-    ok: true,
-    productId,
-    created: true,
-  };
 }
 
 export async function saveStandardFeeProductId(
@@ -240,225 +293,263 @@ export async function saveStandardFeeProductId(
   shopId: string,
   productId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const mutation = `#graphql
-    mutation SaveStandardFeeProductId($metafields: [MetafieldsSetInput!]!) {
-      metafieldsSet(metafields: $metafields) {
-        metafields {
-          namespace
-          key
-          value
-        }
-        userErrors {
-          field
-          message
+  try {
+    const mutation = `#graphql
+      mutation SaveStandardFeeProductId($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          metafields {
+            namespace
+            key
+            value
+          }
+          userErrors {
+            field
+            message
+          }
         }
       }
+    `;
+
+    const variables = {
+      metafields: [
+        {
+          ownerId: shopId,
+          namespace: "synorai_ecocharge",
+          key: "standard_fee_product_id",
+          type: "single_line_text_field",
+          value: productId,
+        },
+      ],
+    };
+
+    const res = await admin.graphql(mutation, { variables });
+    const json = await res.json();
+
+    const userErrors = json?.data?.metafieldsSet?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      return {
+        ok: false,
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
     }
-  `;
 
-  const variables = {
-    metafields: [
-      {
-        ownerId: shopId,
-        namespace: "synorai_ecocharge",
-        key: "standard_fee_product_id",
-        type: "single_line_text_field",
-        value: productId,
-      },
-    ],
-  };
-
-  const res = await admin.graphql(mutation, { variables });
-  const json = await res.json();
-
-  const userErrors = json?.data?.metafieldsSet?.userErrors ?? [];
-  if (userErrors.length > 0) {
+    return { ok: true };
+  } catch (error) {
+    logStandardFeeError("saveStandardFeeProductId failed", error);
     return {
       ok: false,
-      error: userErrors.map((e: any) => e.message).join(", "),
+      error: getReadableErrorMessage(
+        "Saving standard fee product ID failed.",
+        error,
+      ),
     };
   }
-
-  return { ok: true };
 }
 
 async function getExistingProductVariants(
   admin: AdminGraphqlClient,
   productId: string,
 ): Promise<ProductVariantNode[]> {
-  const query = `#graphql
-    query GetStandardFeeProductVariants($id: ID!) {
-      product(id: $id) {
-        id
-        variants(first: 250) {
-          nodes {
-            id
-            title
-            price
-            taxable
-            inventoryItem {
+  try {
+    const query = `#graphql
+      query GetStandardFeeProductVariants($id: ID!) {
+        product(id: $id) {
+          id
+          variants(first: 250) {
+            nodes {
               id
-              tracked
+              title
+              price
+              taxable
+              inventoryItem {
+                id
+                tracked
+              }
+              requiresShipping
             }
-            requiresShipping
           }
         }
       }
-    }
-  `;
+    `;
 
-  const res = await admin.graphql(query, {
-    variables: { id: productId },
-  });
-  const json = await res.json();
+    const res = await admin.graphql(query, {
+      variables: { id: productId },
+    });
+    const json = await res.json();
 
-  const nodes: ProductVariantNode[] =
-    json?.data?.product?.variants?.nodes ?? [];
+    const nodes: ProductVariantNode[] =
+      json?.data?.product?.variants?.nodes ?? [];
 
-  return nodes;
+    return nodes;
+  } catch (error) {
+    logStandardFeeError("getExistingProductVariants failed", error);
+    throw error;
+  }
 }
 
 export async function normalizeStandardFeeProductVariants(
   admin: AdminGraphqlClient,
   productId: string,
 ): Promise<StandardFeeVariantNormalizationResult> {
-  const existingVariants = await getExistingProductVariants(admin, productId);
+  try {
+    const existingVariants = await getExistingProductVariants(admin, productId);
 
-  const variantsNeedingUpdate = existingVariants.filter((variant) => {
-    return (
-      variant.taxable !== false ||
-      variant.requiresShipping !== false ||
-      variant.inventoryItem?.tracked !== false
-    );
-  });
+    const variantsNeedingUpdate = existingVariants.filter((variant) => {
+      return (
+        variant.taxable !== false ||
+        variant.requiresShipping !== false ||
+        variant.inventoryItem?.tracked !== false
+      );
+    });
 
-  if (variantsNeedingUpdate.length === 0) {
-    return {
-      ok: true,
-      updatedCount: 0,
-      totalChecked: existingVariants.length,
-    };
-  }
+    if (variantsNeedingUpdate.length === 0) {
+      return {
+        ok: true,
+        updatedCount: 0,
+        totalChecked: existingVariants.length,
+      };
+    }
 
-  const mutation = `#graphql
-    mutation UpdateStandardFeeVariants(
-      $productId: ID!
-      $variants: [ProductVariantsBulkInput!]!
-    ) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          title
-        }
-        userErrors {
-          field
-          message
+    const mutation = `#graphql
+      mutation UpdateStandardFeeVariants(
+        $productId: ID!
+        $variants: [ProductVariantsBulkInput!]!
+      ) {
+        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+          productVariants {
+            id
+            title
+          }
+          userErrors {
+            field
+            message
+          }
         }
       }
+    `;
+
+    const variables = {
+      productId,
+      variants: variantsNeedingUpdate.map((variant) => ({
+        id: variant.id,
+        taxable: false,
+        requiresShipping: false,
+        inventoryItem: {
+          tracked: false,
+        },
+      })),
+    };
+
+    const res = await admin.graphql(mutation, { variables });
+    const json = await res.json();
+
+    const userErrors = json?.data?.productVariantsBulkUpdate?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      return {
+        ok: false,
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
     }
-  `;
 
-  const variables = {
-    productId,
-    variants: variantsNeedingUpdate.map((variant) => ({
-      id: variant.id,
-      taxable: false,
-      requiresShipping: false,
-      inventoryItem: {
-        tracked: false,
-      },
-    })),
-  };
-
-  const res = await admin.graphql(mutation, { variables });
-  const json = await res.json();
-
-  const userErrors = json?.data?.productVariantsBulkUpdate?.userErrors ?? [];
-  if (userErrors.length > 0) {
+    return {
+      ok: true,
+      updatedCount: variantsNeedingUpdate.length,
+      totalChecked: existingVariants.length,
+    };
+  } catch (error) {
+    logStandardFeeError("normalizeStandardFeeProductVariants failed", error);
     return {
       ok: false,
-      error: userErrors.map((e: any) => e.message).join(", "),
+      error: getReadableErrorMessage(
+        "Standard fee variant normalization failed.",
+        error,
+      ),
     };
   }
-
-  return {
-    ok: true,
-    updatedCount: variantsNeedingUpdate.length,
-    totalChecked: existingVariants.length,
-  };
 }
 
 export async function ensureStandardFeeProductVariants(
   admin: AdminGraphqlClient,
   productId: string,
 ): Promise<StandardFeeVariantEnsureResult> {
-  const requiredVariants = getRequiredFeeVariants();
-  const existingVariants = await getExistingProductVariants(admin, productId);
+  try {
+    const requiredVariants = getRequiredFeeVariants();
+    const existingVariants = await getExistingProductVariants(admin, productId);
 
-  const existingTitles = new Set(
-    existingVariants
-      .map((variant) => variant.title?.trim())
-      .filter((title): title is string => Boolean(title)),
-  );
+    const existingTitles = new Set(
+      existingVariants
+        .map((variant) => variant.title?.trim())
+        .filter((title): title is string => Boolean(title)),
+    );
 
-  const missingVariants = requiredVariants.filter(
-    (variant) => !existingTitles.has(variant.title),
-  );
+    const missingVariants = requiredVariants.filter(
+      (variant) => !existingTitles.has(variant.title),
+    );
 
-  if (missingVariants.length === 0) {
-    return {
-      ok: true,
-      createdCount: 0,
-      totalRequired: requiredVariants.length,
-    };
-  }
+    if (missingVariants.length === 0) {
+      return {
+        ok: true,
+        createdCount: 0,
+        totalRequired: requiredVariants.length,
+      };
+    }
 
-  const mutation = `#graphql
-    mutation CreateStandardFeeVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkCreate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          title
-          price
-        }
-        userErrors {
-          field
-          message
+    const mutation = `#graphql
+      mutation CreateStandardFeeVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkCreate(productId: $productId, variants: $variants) {
+          productVariants {
+            id
+            title
+            price
+          }
+          userErrors {
+            field
+            message
+          }
         }
       }
+    `;
+
+    const variables = {
+      productId,
+      variants: missingVariants.map((variant) => ({
+        price: variant.price,
+        optionValues: [
+          {
+            name: variant.title,
+            optionName: "Title",
+          },
+        ],
+        taxable: false,
+      })),
+    };
+
+    const res = await admin.graphql(mutation, { variables });
+    const json = await res.json();
+
+    const userErrors = json?.data?.productVariantsBulkCreate?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      return {
+        ok: false,
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
     }
-  `;
 
-  const variables = {
-    productId,
-    variants: missingVariants.map((variant) => ({
-      price: variant.price,
-      optionValues: [
-        {
-          name: variant.title,
-          optionName: "Title",
-        },
-      ],
-      taxable: false,
-    })),
-  };
-
-  const res = await admin.graphql(mutation, { variables });
-  const json = await res.json();
-
-  const userErrors = json?.data?.productVariantsBulkCreate?.userErrors ?? [];
-  if (userErrors.length > 0) {
+    return {
+      ok: true,
+      createdCount: missingVariants.length,
+      totalRequired: requiredVariants.length,
+    };
+  } catch (error) {
+    logStandardFeeError("ensureStandardFeeProductVariants failed", error);
     return {
       ok: false,
-      error: userErrors.map((e: any) => e.message).join(", "),
+      error: getReadableErrorMessage(
+        "Ensuring standard fee variants failed.",
+        error,
+      ),
     };
   }
-
-  return {
-    ok: true,
-    createdCount: missingVariants.length,
-    totalRequired: requiredVariants.length,
-  };
 }
 
 export function getStandardFeeProductConstants() {
@@ -523,31 +614,42 @@ export async function getStandardFeeVariantMap(
   | { ok: true; variantMap: StandardFeeVariantMap }
   | { ok: false; error: string }
 > {
-  const existingVariants = await getExistingProductVariants(admin, productId);
+  try {
+    const existingVariants = await getExistingProductVariants(admin, productId);
 
-  const variantMap: StandardFeeVariantMap = {};
+    const variantMap: StandardFeeVariantMap = {};
 
-  for (const variant of existingVariants) {
-    if (!variant.id || !variant.title) continue;
+    for (const variant of existingVariants) {
+      if (!variant.id || !variant.title) continue;
 
-    const parsed = parseVariantTitle(variant.title);
-    if (!parsed) continue;
+      const parsed = parseVariantTitle(variant.title);
+      if (!parsed) continue;
 
-    if (!variantMap[parsed.province]) {
-      variantMap[parsed.province] = {};
+      if (!variantMap[parsed.province]) {
+        variantMap[parsed.province] = {};
+      }
+
+      variantMap[parsed.province]![parsed.category] = {
+        variantId: variant.id,
+        price: variant.price ?? parsed.price,
+        title: variant.title,
+      };
     }
 
-    variantMap[parsed.province]![parsed.category] = {
-      variantId: variant.id,
-      price: variant.price ?? parsed.price,
-      title: variant.title,
+    return {
+      ok: true,
+      variantMap,
+    };
+  } catch (error) {
+    logStandardFeeError("getStandardFeeVariantMap failed", error);
+    return {
+      ok: false,
+      error: getReadableErrorMessage(
+        "Building standard fee variant map failed.",
+        error,
+      ),
     };
   }
-
-  return {
-    ok: true,
-    variantMap,
-  };
 }
 
 export async function saveStandardFeeVariantMap(
@@ -555,46 +657,57 @@ export async function saveStandardFeeVariantMap(
   shopId: string,
   variantMap: StandardFeeVariantMap,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const mutation = `#graphql
-    mutation SaveStandardFeeVariantMap($metafields: [MetafieldsSetInput!]!) {
-      metafieldsSet(metafields: $metafields) {
-        metafields {
-          namespace
-          key
-          value
-        }
-        userErrors {
-          field
-          message
+  try {
+    const mutation = `#graphql
+      mutation SaveStandardFeeVariantMap($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          metafields {
+            namespace
+            key
+            value
+          }
+          userErrors {
+            field
+            message
+          }
         }
       }
+    `;
+
+    const variables = {
+      metafields: [
+        {
+          ownerId: shopId,
+          namespace: "synorai_ecocharge",
+          key: "standard_fee_variant_map",
+          type: "json",
+          value: JSON.stringify(variantMap),
+        },
+      ],
+    };
+
+    const res = await admin.graphql(mutation, { variables });
+    const json = await res.json();
+
+    const userErrors = json?.data?.metafieldsSet?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      return {
+        ok: false,
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
     }
-  `;
 
-  const variables = {
-    metafields: [
-      {
-        ownerId: shopId,
-        namespace: "synorai_ecocharge",
-        key: "standard_fee_variant_map",
-        type: "json",
-        value: JSON.stringify(variantMap),
-      },
-    ],
-  };
-
-  const res = await admin.graphql(mutation, { variables });
-  const json = await res.json();
-
-  const userErrors = json?.data?.metafieldsSet?.userErrors ?? [];
-  if (userErrors.length > 0) {
+    return { ok: true };
+  } catch (error) {
+    logStandardFeeError("saveStandardFeeVariantMap failed", error);
     return {
       ok: false,
-      error: userErrors.map((e: any) => e.message).join(", "),
+      error: getReadableErrorMessage(
+        "Saving standard fee variant map failed.",
+        error,
+      ),
     };
   }
-
-  return { ok: true };
 }
 
 export function getStandardFeeVariantPreview() {
