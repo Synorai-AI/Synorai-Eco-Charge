@@ -58,7 +58,6 @@ type ProductVariantNode = {
   title?: string;
   price?: string;
   taxable?: boolean;
-  requiresShipping?: boolean;
   inventoryItem?: {
     id: string;
     tracked?: boolean;
@@ -365,7 +364,6 @@ async function getExistingProductVariants(
                 id
                 tracked
               }
-              requiresShipping
             }
           }
         }
@@ -397,7 +395,6 @@ export async function normalizeStandardFeeProductVariants(
     const variantsNeedingUpdate = existingVariants.filter((variant) => {
       return (
         variant.taxable !== false ||
-        variant.requiresShipping !== false ||
         variant.inventoryItem?.tracked !== false
       );
     });
@@ -433,7 +430,6 @@ export async function normalizeStandardFeeProductVariants(
       variants: variantsNeedingUpdate.map((variant) => ({
         id: variant.id,
         taxable: false,
-        requiresShipping: false,
         inventoryItem: {
           tracked: false,
         },
