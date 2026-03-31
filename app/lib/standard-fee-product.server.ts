@@ -2,11 +2,12 @@ import {
   ALLOWED_PROVINCES,
   CATEGORY_LABEL_MAP,
   PROVINCE_CONFIG,
+  formatCartFeeLineTitle,
   type NormalizedCategory,
   type ProvinceCode,
 } from "./eco-fees";
 
-const STANDARD_FEE_PRODUCT_TITLE = "Synorai Environmental Handling Fee";
+const STANDARD_FEE_PRODUCT_TITLE = "Environmental Fee";
 const STANDARD_FEE_PRODUCT_VENDOR = "Synorai";
 const STANDARD_FEE_PRODUCT_TYPE = "Synorai Eco Fee";
 const STANDARD_FEE_PRODUCT_TAG = "synorai-eco-fee";
@@ -64,6 +65,11 @@ type ProductVariantNode = {
   } | null;
 };
 
+type FoundStandardFeeProduct = {
+  productId: string | null;
+  title: string | null;
+};
+
 type RequiredVariant = {
   province: ProvinceCode;
   category: NormalizedCategory;
@@ -87,9 +93,8 @@ export type StandardFeeVariantMap = Partial<
 function formatVariantTitle(
   province: ProvinceCode,
   category: NormalizedCategory,
-  fee: number,
 ): string {
-  return `${province} | ${category} | ${fee.toFixed(2)}`;
+  return formatCartFeeLineTitle(province, category);
 }
 
 function getRequiredFeeVariants(): RequiredVariant[] {
@@ -106,7 +111,7 @@ function getRequiredFeeVariants(): RequiredVariant[] {
       variants.push({
         province,
         category,
-        title: formatVariantTitle(province, category, fee),
+        title: formatVariantTitle(province, category),
         price: fee.toFixed(2),
       });
     }
@@ -153,9 +158,70 @@ function getReadableErrorMessage(
   return fallback;
 }
 
+async function syncStandardFeeProductIdentity(
+  admin: AdminGraphqlClient,
+  productId: string,
+  currentTitle: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (currentTitle === STANDARD_FEE_PRODUCT_TITLE) {
+    return { ok: true };
+  }
+
+  try {
+    const mutation = `#graphql
+      mutation UpdateStandardFeeProductIdentity($input: ProductUpdateInput!) {
+        productUpdate(product: $input) {
+          product {
+            id
+            title
+            productType
+            vendor
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      input: {
+        id: productId,
+        title: STANDARD_FEE_PRODUCT_TITLE,
+        productType: STANDARD_FEE_PRODUCT_TYPE,
+        vendor: STANDARD_FEE_PRODUCT_VENDOR,
+        tags: [STANDARD_FEE_PRODUCT_TAG],
+      },
+    };
+
+    const res = await admin.graphql(mutation, { variables });
+    const json = await res.json();
+
+    const userErrors = json?.data?.productUpdate?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      return {
+        ok: false,
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    logStandardFeeError("syncStandardFeeProductIdentity failed", error);
+    return {
+      ok: false,
+      error: getReadableErrorMessage(
+        "Updating standard fee product identity failed.",
+        error,
+      ),
+    };
+  }
+}
+
 export async function findStandardFeeProduct(
   admin: AdminGraphqlClient,
-): Promise<{ productId: string | null }> {
+): Promise<FoundStandardFeeProduct> {
   try {
     const query = `#graphql
       query FindStandardFeeProduct($search: String!) {
@@ -172,7 +238,6 @@ export async function findStandardFeeProduct(
     `;
 
     const search = [
-      `title:"${STANDARD_FEE_PRODUCT_TITLE}"`,
       `vendor:${STANDARD_FEE_PRODUCT_VENDOR}`,
       `tag:${STANDARD_FEE_PRODUCT_TAG}`,
     ].join(" ");
@@ -193,19 +258,18 @@ export async function findStandardFeeProduct(
     const exact = nodes.find((node) => {
       const tags = Array.isArray(node.tags) ? node.tags : [];
       return (
-        node.title === STANDARD_FEE_PRODUCT_TITLE &&
         node.vendor === STANDARD_FEE_PRODUCT_VENDOR &&
-        node.productType === STANDARD_FEE_PRODUCT_TYPE &&
         tags.includes(STANDARD_FEE_PRODUCT_TAG)
       );
     });
 
     return {
       productId: exact?.id ?? null,
+      title: exact?.title ?? null,
     };
   } catch (error) {
     logStandardFeeError("findStandardFeeProduct failed", error);
-    return { productId: null };
+    return { productId: null, title: null };
   }
 }
 
@@ -215,6 +279,19 @@ export async function createStandardFeeProduct(
   try {
     const existing = await findStandardFeeProduct(admin);
     if (existing.productId) {
+      const synced = await syncStandardFeeProductIdentity(
+        admin,
+        existing.productId,
+        existing.title,
+      );
+
+      if (!synced.ok) {
+        return {
+          ok: false,
+          error: synced.error,
+        };
+      }
+
       return {
         ok: true,
         productId: existing.productId,
@@ -559,48 +636,24 @@ export function getStandardFeeProductConstants() {
 
 function parseVariantTitle(
   title: string,
-): { province: ProvinceCode; category: NormalizedCategory; price: string } | null {
-  const parts = title.split("|").map((part) => part.trim());
-  if (parts.length !== 3) return null;
+): { province: ProvinceCode; category: NormalizedCategory } | null {
+  const trimmed = title.trim();
 
-  const [provinceRaw, categoryRaw, priceRaw] = parts;
-
-  if (!(ALLOWED_PROVINCES as readonly string[]).includes(provinceRaw)) {
-    return null;
+  for (const province of ALLOWED_PROVINCES) {
+    for (const category of Object.keys(
+      CATEGORY_LABEL_MAP,
+    ) as NormalizedCategory[]) {
+      const expectedTitle = formatVariantTitle(province, category);
+      if (trimmed === expectedTitle) {
+        return {
+          province,
+          category,
+        };
+      }
+    }
   }
 
-  const province = provinceRaw as ProvinceCode;
-
-  const validCategories = new Set<NormalizedCategory>([
-    "computers",
-    "laptops",
-    "printers",
-    "peripherals",
-    "av",
-    "cellphones",
-    "display-small",
-    "display-large",
-    "display-xlarge",
-    "all-in-one",
-    "small-appliances",
-    "tools",
-  ]);
-
-  if (!validCategories.has(categoryRaw as NormalizedCategory)) {
-    return null;
-  }
-
-  const category = categoryRaw as NormalizedCategory;
-
-  if (!priceRaw || Number.isNaN(Number(priceRaw))) {
-    return null;
-  }
-
-  return {
-    province,
-    category,
-    price: Number(priceRaw).toFixed(2),
-  };
+  return null;
 }
 
 export async function getStandardFeeVariantMap(
@@ -625,9 +678,12 @@ export async function getStandardFeeVariantMap(
         variantMap[parsed.province] = {};
       }
 
+      const fallbackPrice =
+        PROVINCE_CONFIG[parsed.province]?.feeByCategory?.[parsed.category] ?? 0;
+
       variantMap[parsed.province]![parsed.category] = {
         variantId: variant.id,
-        price: variant.price ?? parsed.price,
+        price: variant.price ?? fallbackPrice.toFixed(2),
         title: variant.title,
       };
     }
