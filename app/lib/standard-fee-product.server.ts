@@ -97,6 +97,28 @@ function formatVariantTitle(
   return formatCartFeeLineTitle(province, category);
 }
 
+function formatMoneyString(value: unknown): string | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toFixed(2) : null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const numeric = Number(trimmed);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  return numeric.toFixed(2);
+}
+
 function getRequiredFeeVariants(): RequiredVariant[] {
   const variants: RequiredVariant[] = [];
 
@@ -118,6 +140,17 @@ function getRequiredFeeVariants(): RequiredVariant[] {
   }
 
   return variants;
+}
+
+function getRequiredVariantByTitle(
+  title: string | undefined,
+): RequiredVariant | null {
+  const trimmed = typeof title === "string" ? title.trim() : "";
+  if (!trimmed) return null;
+
+  return (
+    getRequiredFeeVariants().find((variant) => variant.title === trimmed) ?? null
+  );
 }
 
 function serializeError(error: unknown): string {
@@ -470,9 +503,16 @@ export async function normalizeStandardFeeProductVariants(
     const existingVariants = await getExistingProductVariants(admin, productId);
 
     const variantsNeedingUpdate = existingVariants.filter((variant) => {
+      const requiredVariant = getRequiredVariantByTitle(variant.title);
+      const expectedPrice = requiredVariant?.price ?? null;
+      const currentPrice = formatMoneyString(variant.price);
+      const hasPriceMismatch =
+        expectedPrice !== null && currentPrice !== expectedPrice;
+
       return (
         variant.taxable !== false ||
-        variant.inventoryItem?.tracked !== false
+        variant.inventoryItem?.tracked !== false ||
+        hasPriceMismatch
       );
     });
 
@@ -493,6 +533,7 @@ export async function normalizeStandardFeeProductVariants(
           productVariants {
             id
             title
+            price
           }
           userErrors {
             field
@@ -504,13 +545,18 @@ export async function normalizeStandardFeeProductVariants(
 
     const variables = {
       productId,
-      variants: variantsNeedingUpdate.map((variant) => ({
-        id: variant.id,
-        taxable: false,
-        inventoryItem: {
-          tracked: false,
-        },
-      })),
+      variants: variantsNeedingUpdate.map((variant) => {
+        const requiredVariant = getRequiredVariantByTitle(variant.title);
+
+        return {
+          id: variant.id,
+          ...(requiredVariant ? { price: requiredVariant.price } : {}),
+          taxable: false,
+          inventoryItem: {
+            tracked: false,
+          },
+        };
+      }),
     };
 
     const res = await admin.graphql(mutation, { variables });
