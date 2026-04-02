@@ -45,6 +45,25 @@ export type StandardFeeVariantNormalizationResult =
       error: string;
     };
 
+export type StandardFeeProductDiagnosticsVariant = {
+  id: string;
+  title: string;
+  price: string;
+};
+
+export type StandardFeeProductDiagnostics =
+  | {
+      ok: true;
+      productId: string;
+      title: string;
+      handle: string;
+      variants: StandardFeeProductDiagnosticsVariant[];
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
 type AdminGraphqlClient = {
   graphql: (
     query: string,
@@ -492,6 +511,82 @@ async function getExistingProductVariants(
   } catch (error) {
     logStandardFeeError("getExistingProductVariants failed", error);
     throw error;
+  }
+}
+
+export async function getStandardFeeProductDiagnostics(
+  admin: AdminGraphqlClient,
+  productId: string,
+): Promise<StandardFeeProductDiagnostics> {
+  try {
+    const query = `#graphql
+      query GetStandardFeeProductDiagnostics($id: ID!) {
+        product(id: $id) {
+          id
+          title
+          handle
+          variants(first: 250) {
+            nodes {
+              id
+              title
+              price
+            }
+          }
+        }
+      }
+    `;
+
+    const res = await admin.graphql(query, {
+      variables: { id: productId },
+    });
+    const json = await res.json();
+
+    const product = json?.data?.product;
+    if (!product?.id) {
+      return {
+        ok: false,
+        error: "Standard fee product diagnostics returned no product.",
+      };
+    }
+
+    const handle =
+      typeof product.handle === "string" ? product.handle.trim() : "";
+    if (!handle) {
+      return {
+        ok: false,
+        error: "Standard fee product diagnostics returned no product handle.",
+      };
+    }
+
+    const variants: StandardFeeProductDiagnosticsVariant[] = (
+      product?.variants?.nodes ?? []
+    )
+      .filter((variant: any) => variant?.id && variant?.title)
+      .map((variant: any) => ({
+        id: String(variant.id),
+        title: String(variant.title),
+        price: formatMoneyString(variant.price) ?? "0.00",
+      }));
+
+    return {
+      ok: true,
+      productId: String(product.id),
+      title:
+        typeof product.title === "string" && product.title.trim()
+          ? product.title.trim()
+          : STANDARD_FEE_PRODUCT_TITLE,
+      handle,
+      variants,
+    };
+  } catch (error) {
+    logStandardFeeError("getStandardFeeProductDiagnostics failed", error);
+    return {
+      ok: false,
+      error: getReadableErrorMessage(
+        "Loading standard fee product diagnostics failed.",
+        error,
+      ),
+    };
   }
 }
 

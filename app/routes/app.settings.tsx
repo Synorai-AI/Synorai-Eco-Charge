@@ -19,6 +19,7 @@ import { ALLOWED_PROVINCES, type ProvinceCode } from "../lib/eco-fees";
 import {
   createStandardFeeProduct,
   ensureStandardFeeProductVariants,
+  getStandardFeeProductDiagnostics,
   getStandardFeeVariantMap,
   normalizeStandardFeeProductVariants,
   saveStandardFeeProductId,
@@ -48,6 +49,22 @@ const DEV_MODE_OPTIONS = [
   { label: "Force Standard Fee Product Mode", value: "standard_fee_product" },
 ];
 
+type StandardPricingDiagnosticMismatch = {
+  variantId: string;
+  title: string;
+  adminPrice: string;
+  storefrontPrice: string;
+};
+
+type StandardPricingDiagnostics = {
+  status: "not_available" | "ok" | "mismatch" | "error";
+  productHandle: string | null;
+  checkedVariantCount: number;
+  mismatchCount: number;
+  sampleMismatch: StandardPricingDiagnosticMismatch | null;
+  message: string | null;
+};
+
 type LoaderData = {
   shopDomain: string;
   currentProvince: Province | null;
@@ -68,6 +85,7 @@ type LoaderData = {
   standardFeeProductId: string | null;
   standardVariantMapExists: boolean;
   isStandardSetupComplete: boolean;
+  standardPricingDiagnostics: StandardPricingDiagnostics;
 };
 
 type ActionData =
@@ -81,6 +99,16 @@ type ActionData =
   | { ok: true; kind: "transform"; cartTransformId: string; repaired: boolean }
   | { ok: true; kind: "standard_setup"; feeProductId: string; repaired: boolean }
   | { ok: false; error: string };
+
+type StorefrontProductVariant = {
+  id?: number | string;
+  title?: string;
+  price?: number | string;
+};
+
+type StorefrontProductResponse = {
+  variants?: StorefrontProductVariant[];
+};
 
 function isProvince(value: string): value is Province {
   return (ALLOWED_PROVINCES as readonly string[]).includes(value);
@@ -140,6 +168,34 @@ function resolveActiveMode(params: {
   return params.isDevelopmentStore || params.isPlusStore
     ? "pro_cart_transform"
     : "standard_fee_product";
+}
+
+function formatMoneyString(value: unknown): string | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toFixed(2) : null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const numeric = Number(trimmed);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  return numeric.toFixed(2);
+}
+
+function extractNumericId(gidOrId: string): string {
+  const trimmed = gidOrId.trim();
+  const parts = trimmed.split("/");
+  return parts[parts.length - 1] ?? trimmed;
 }
 
 async function getFunctionId(admin: any): Promise<string | null> {
@@ -391,6 +447,131 @@ async function getStandardSetupState(admin: any): Promise<{
   };
 }
 
+async function getStandardPricingDiagnostics(
+  admin: any,
+  shopDomain: string,
+  standardFeeProductId: string | null,
+): Promise<StandardPricingDiagnostics> {
+  if (!standardFeeProductId) {
+    return {
+      status: "not_available",
+      productHandle: null,
+      checkedVariantCount: 0,
+      mismatchCount: 0,
+      sampleMismatch: null,
+      message: null,
+    };
+  }
+
+  const diagnostics = await getStandardFeeProductDiagnostics(
+    admin,
+    standardFeeProductId,
+  );
+
+  if (!diagnostics.ok) {
+    return {
+      status: "error",
+      productHandle: null,
+      checkedVariantCount: 0,
+      mismatchCount: 0,
+      sampleMismatch: null,
+      message: diagnostics.error,
+    };
+  }
+
+  try {
+    const url = `https://${shopDomain}/products/${diagnostics.handle}.js?cb=${Date.now()}`;
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        status: "error",
+        productHandle: diagnostics.handle,
+        checkedVariantCount: 0,
+        mismatchCount: 0,
+        sampleMismatch: null,
+        message: `Storefront diagnostics request failed with status ${response.status}.`,
+      };
+    }
+
+    const storefrontProduct = (await response.json()) as StorefrontProductResponse;
+    const storefrontVariants = Array.isArray(storefrontProduct?.variants)
+      ? storefrontProduct.variants
+      : [];
+
+    const storefrontVariantById = new Map<string, StorefrontProductVariant>();
+    for (const variant of storefrontVariants) {
+      if (variant?.id === undefined || variant?.id === null) continue;
+      storefrontVariantById.set(String(variant.id), variant);
+    }
+
+    const mismatches: StandardPricingDiagnosticMismatch[] = [];
+
+    for (const adminVariant of diagnostics.variants) {
+      const numericId = extractNumericId(adminVariant.id);
+      const storefrontVariant = storefrontVariantById.get(numericId);
+      if (!storefrontVariant) {
+        continue;
+      }
+
+      const adminPrice = formatMoneyString(adminVariant.price);
+      const storefrontPrice = formatMoneyString(storefrontVariant.price);
+
+      if (!adminPrice || !storefrontPrice) {
+        continue;
+      }
+
+      if (adminPrice !== storefrontPrice) {
+        mismatches.push({
+          variantId: numericId,
+          title: adminVariant.title,
+          adminPrice,
+          storefrontPrice,
+        });
+      }
+    }
+
+    if (mismatches.length > 0) {
+      return {
+        status: "mismatch",
+        productHandle: diagnostics.handle,
+        checkedVariantCount: diagnostics.variants.length,
+        mismatchCount: mismatches.length,
+        sampleMismatch: mismatches[0] ?? null,
+        message: null,
+      };
+    }
+
+    return {
+      status: "ok",
+      productHandle: diagnostics.handle,
+      checkedVariantCount: diagnostics.variants.length,
+      mismatchCount: 0,
+      sampleMismatch: null,
+      message: null,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : "Unknown storefront diagnostics error.";
+
+    return {
+      status: "error",
+      productHandle: diagnostics.handle,
+      checkedVariantCount: diagnostics.variants.length,
+      mismatchCount: 0,
+      sampleMismatch: null,
+      message,
+    };
+  }
+}
+
 async function saveShopMetafield(params: {
   admin: any;
   shopId: string;
@@ -483,6 +664,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   const standardSetup = await getStandardSetupState(admin);
+  const standardPricingDiagnostics = await getStandardPricingDiagnostics(
+    admin,
+    session.shop,
+    standardSetup.standardFeeProductId,
+  );
 
   const data: LoaderData = {
     shopDomain: session.shop,
@@ -504,6 +690,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     standardFeeProductId: standardSetup.standardFeeProductId,
     standardVariantMapExists: standardSetup.standardVariantMapExists,
     isStandardSetupComplete: standardSetup.isStandardSetupComplete,
+    standardPricingDiagnostics,
   };
 
   return Response.json(data);
@@ -876,6 +1063,8 @@ export default function SettingsRoute() {
       ? loaderData.isTransformActive
       : loaderData.isStandardSetupComplete;
 
+  const diagnostics = loaderData.standardPricingDiagnostics;
+
   return (
     <Page title="EcoCharge Settings">
       <BlockStack gap="400">
@@ -1000,24 +1189,93 @@ export default function SettingsRoute() {
                 </Badge>
               </InlineStack>
 
-              <Banner title="Important pricing warning" tone="warning">
-                <p>
-                  Standard mode uses real Shopify fee product variants for environmental fees.
-                </p>
-                <p>
-                  Shopify Markets and Catalog price adjustments can increase or decrease those
-    fee variant prices in storefront and cart, even when EcoCharge is configured
-    correctly.
-                 </p>
-                 <p>
-                   If Environmental Fee accuracy is critical, review <strong>Markets → Catalogs → Canada</strong> and make sure no percentage-based price increase or decrease is applied to the
-                   Environmental Fee product, as this will affect the charged EcoFee.
+              {diagnostics.status === "mismatch" && (
+                <Banner title="Detected storefront fee price mismatch" tone="critical">
+                  <p>
+                    EcoCharge detected that one or more Environmental Fee product
+                    variants are priced differently in storefront than in Shopify
+                    admin.
                   </p>
                   <p>
-                    For stronger fee integrity, <strong>Pro Cart Transform Mode requires both a Shopify Plus
-    store and the Synorai EcoCharge Pro plan</strong>.
+                    This usually means Shopify Markets or Catalog price adjustments
+                    are affecting Standard mode fee variants.
+                  </p>
+                  {diagnostics.sampleMismatch && (
+                    <p>
+                      Example: <strong>{diagnostics.sampleMismatch.title}</strong>{" "}
+                      admin {diagnostics.sampleMismatch.adminPrice} vs storefront{" "}
+                      {diagnostics.sampleMismatch.storefrontPrice}.
+                    </p>
+                  )}
+                  <p>
+                    Checked {diagnostics.checkedVariantCount} fee variants and found{" "}
+                    {diagnostics.mismatchCount} mismatch
+                    {diagnostics.mismatchCount === 1 ? "" : "es"}.
+                  </p>
+                  <p>
+                    Review <strong>Markets → Catalogs → Canada</strong> and make sure
+                    no percentage-based price increase or decrease is applied to the
+                    Environmental Fee product.
+                  </p>
+                  <p>
+                    For stronger fee integrity, <strong>Pro Cart Transform Mode requires
+                    both a Shopify Plus store and the Synorai EcoCharge Pro plan</strong>.
                   </p>
                 </Banner>
+              )}
+
+              {diagnostics.status === "ok" && (
+                <Banner title="Standard fee pricing diagnostic passed" tone="success">
+                  <p>
+                    EcoCharge compared admin and storefront Environmental Fee variant
+                    prices and found no mismatch.
+                  </p>
+                  <p>
+                    Checked {diagnostics.checkedVariantCount} fee variant
+                    {diagnostics.checkedVariantCount === 1 ? "" : "s"} on the current
+                    storefront.
+                  </p>
+                </Banner>
+              )}
+
+              {diagnostics.status === "error" && (
+                <Banner title="Standard pricing diagnostics unavailable" tone="warning">
+                  <p>
+                    EcoCharge could not complete storefront fee price diagnostics for
+                    this store.
+                  </p>
+                  {diagnostics.message && <p>{diagnostics.message}</p>}
+                  {diagnostics.productHandle && (
+                    <p>
+                      Fee product handle checked: <strong>{diagnostics.productHandle}</strong>
+                    </p>
+                  )}
+                </Banner>
+              )}
+
+              {diagnostics.status === "not_available" && (
+                <Banner title="Important pricing warning" tone="warning">
+                  <p>
+                    Standard mode uses real Shopify fee product variants for
+                    environmental fees.
+                  </p>
+                  <p>
+                    Shopify Markets and Catalog price adjustments can increase or
+                    decrease those fee variant prices in storefront and cart, even
+                    when EcoCharge is configured correctly.
+                  </p>
+                  <p>
+                    If Environmental Fee accuracy is critical, review{" "}
+                    <strong>Markets → Catalogs → Canada</strong> and make sure no
+                    percentage-based price increase or decrease is applied to the
+                    Environmental Fee product, as this will affect the charged EcoFee.
+                  </p>
+                  <p>
+                    For stronger fee integrity, <strong>Pro Cart Transform Mode requires
+                    both a Shopify Plus store and the Synorai EcoCharge Pro plan</strong>.
+                  </p>
+                </Banner>
+              )}
 
               <Text as="p" variant="bodyMd">
                 Standard stores use separate app-controlled environmental fee line items
@@ -1039,6 +1297,12 @@ export default function SettingsRoute() {
                   Variant map:{" "}
                   {loaderData.standardVariantMapExists ? "saved" : "not saved yet"}
                 </Text>
+
+                {diagnostics.productHandle && (
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Fee product handle: {diagnostics.productHandle}
+                  </Text>
+                )}
               </BlockStack>
 
               <InlineStack gap="300">
