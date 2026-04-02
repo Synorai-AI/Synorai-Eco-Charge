@@ -1000,6 +1000,23 @@ export default function SettingsRoute() {
                 </Badge>
               </InlineStack>
 
+              <Banner title="Important pricing warning" tone="warning">
+                <p>
+                  Standard mode uses real Shopify fee product variants for
+                  environmental fees.
+                </p>
+                <p>
+                  Shopify Markets, catalogs, and price adjustments can increase or
+                  decrease those fee variant prices in storefront and cart, even when
+                  EcoCharge is configured correctly.
+                </p>
+                <p>
+                  If government fee accuracy is critical, review Markets/catalog price
+                  adjustments for the Environmental Fee product. Use Pro Cart Transform
+                  Mode when available for stronger fee integrity.
+                </p>
+              </Banner>
+
               <Text as="p" variant="bodyMd">
                 Standard stores use separate app-controlled environmental fee line items
                 in the cart. This mode does not modify the original product line.
