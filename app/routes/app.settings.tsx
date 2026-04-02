@@ -1002,20 +1002,23 @@ export default function SettingsRoute() {
 
               <Banner title="Important pricing warning" tone="warning">
                 <p>
-                  Standard mode uses real Shopify fee product variants for
-                  environmental fees.
+                  Standard mode uses real Shopify fee product variants for environmental fees.
                 </p>
                 <p>
-                  Shopify Markets, catalogs, and price adjustments can increase or
-                  decrease those fee variant prices in storefront and cart, even when
-                  EcoCharge is configured correctly.
-                </p>
-                <p>
-                  If government fee accuracy is critical, review Markets/catalog price
-                  adjustments for the Environmental Fee product. Use Pro Cart Transform
-                  Mode when available for stronger fee integrity.
-                </p>
-              </Banner>
+                  Shopify Markets and Catalog price adjustments can increase or decrease those
+    fee variant prices in storefront and cart, even when EcoCharge is configured
+    correctly.
+                 </p>
+                 <p>
+                   If Environmental Fee accuracy is critical, review <strong>Markets → Catalogs → Canada</strong>
+    and make sure no percentage-based price increase or decrease is applied to the
+                   Environmental Fee product, as this will affect the charged EcoFee.
+                  </p>
+                  <p>
+                    For stronger fee integrity, <strong>Pro Cart Transform Mode requires both a Shopify Plus
+    store and the Synorai EcoCharge Pro plan</strong>.
+                  </p>
+                </Banner>
 
               <Text as="p" variant="bodyMd">
                 Standard stores use separate app-controlled environmental fee line items
