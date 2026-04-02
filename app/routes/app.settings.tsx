@@ -1010,8 +1010,7 @@ export default function SettingsRoute() {
     correctly.
                  </p>
                  <p>
-                   If Environmental Fee accuracy is critical, review <strong>Markets → Catalogs → Canada</strong>
-    and make sure no percentage-based price increase or decrease is applied to the
+                   If Environmental Fee accuracy is critical, review <strong>Markets → Catalogs → Canada</strong> and make sure no percentage-based price increase or decrease is applied to the
                    Environmental Fee product, as this will affect the charged EcoFee.
                   </p>
                   <p>
