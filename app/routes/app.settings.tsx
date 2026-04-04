@@ -469,6 +469,12 @@ async function getStandardPricingDiagnostics(
   );
 
   if (!diagnostics.ok) {
+    console.error("[standard-pricing-diagnostics] admin diagnostics failed", {
+      shopDomain,
+      standardFeeProductId,
+      error: diagnostics.error,
+    });
+
     return {
       status: "error",
       productHandle: null,
@@ -479,13 +485,32 @@ async function getStandardPricingDiagnostics(
     };
   }
 
+  const url = `https://${shopDomain}/products/${diagnostics.handle}.js?cb=${Date.now()}`;
+
   try {
-    const url = `https://${shopDomain}/products/${diagnostics.handle}.js?cb=${Date.now()}`;
+    console.log("[standard-pricing-diagnostics] storefront fetch starting", {
+      shopDomain,
+      productHandle: diagnostics.handle,
+      url,
+      checkedVariantCount: diagnostics.variants.length,
+    });
+
     const response = await fetch(url, {
       method: "GET",
       headers: {
         Accept: "application/json",
       },
+      redirect: "follow",
+    });
+
+    console.log("[standard-pricing-diagnostics] storefront fetch completed", {
+      shopDomain,
+      productHandle: diagnostics.handle,
+      status: response.status,
+      ok: response.ok,
+      redirected: response.redirected,
+      finalUrl: response.url,
+      contentType: response.headers.get("content-type"),
     });
 
     if (!response.ok) {
@@ -536,6 +561,15 @@ async function getStandardPricingDiagnostics(
       }
     }
 
+    console.log("[standard-pricing-diagnostics] comparison finished", {
+      shopDomain,
+      productHandle: diagnostics.handle,
+      adminVariantCount: diagnostics.variants.length,
+      storefrontVariantCount: storefrontVariants.length,
+      mismatchCount: mismatches.length,
+      sampleMismatch: mismatches[0] ?? null,
+    });
+
     if (mismatches.length > 0) {
       return {
         status: "mismatch",
@@ -555,7 +589,23 @@ async function getStandardPricingDiagnostics(
       sampleMismatch: null,
       message: null,
     };
-  } catch (error) {
+  } catch (error: any) {
+    console.error("[standard-pricing-diagnostics] storefront fetch threw", {
+      shopDomain,
+      productHandle: diagnostics.handle,
+      url,
+      errorName: error?.name ?? null,
+      errorMessage: error?.message ?? null,
+      errorCause:
+        error?.cause instanceof Error
+          ? {
+              name: error.cause.name,
+              message: error.cause.message,
+            }
+          : error?.cause ?? null,
+      stack: error?.stack ?? null,
+    });
+
     const message =
       error instanceof Error && error.message
         ? error.message
