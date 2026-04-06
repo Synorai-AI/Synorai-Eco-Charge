@@ -49,19 +49,13 @@ const DEV_MODE_OPTIONS = [
   { label: "Force Standard Fee Product Mode", value: "standard_fee_product" },
 ];
 
-type StandardPricingDiagnosticMismatch = {
-  variantId: string;
-  title: string;
-  adminPrice: string;
-  storefrontPrice: string;
-};
-
 type StandardPricingDiagnostics = {
-  status: "not_available" | "ok" | "mismatch" | "error";
+  status: "not_available" | "ok" | "warning" | "error";
   productHandle: string | null;
   checkedVariantCount: number;
-  mismatchCount: number;
-  sampleMismatch: StandardPricingDiagnosticMismatch | null;
+  normalizedVariantCount: number;
+  unnormalizedVariantCount: number;
+  sampleUnnormalizedTitle: string | null;
   message: string | null;
 };
 
@@ -99,16 +93,6 @@ type ActionData =
   | { ok: true; kind: "transform"; cartTransformId: string; repaired: boolean }
   | { ok: true; kind: "standard_setup"; feeProductId: string; repaired: boolean }
   | { ok: false; error: string };
-
-type StorefrontProductVariant = {
-  id?: number | string;
-  title?: string;
-  price?: number | string;
-};
-
-type StorefrontProductResponse = {
-  variants?: StorefrontProductVariant[];
-};
 
 function isProvince(value: string): value is Province {
   return (ALLOWED_PROVINCES as readonly string[]).includes(value);
@@ -168,34 +152,6 @@ function resolveActiveMode(params: {
   return params.isDevelopmentStore || params.isPlusStore
     ? "pro_cart_transform"
     : "standard_fee_product";
-}
-
-function formatMoneyString(value: unknown): string | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value.toFixed(2) : null;
-  }
-
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const numeric = Number(trimmed);
-  if (!Number.isFinite(numeric)) {
-    return null;
-  }
-
-  return numeric.toFixed(2);
-}
-
-function extractNumericId(gidOrId: string): string {
-  const trimmed = gidOrId.trim();
-  const parts = trimmed.split("/");
-  return parts[parts.length - 1] ?? trimmed;
 }
 
 async function getFunctionId(admin: any): Promise<string | null> {
@@ -457,8 +413,9 @@ async function getStandardPricingDiagnostics(
       status: "not_available",
       productHandle: null,
       checkedVariantCount: 0,
-      mismatchCount: 0,
-      sampleMismatch: null,
+      normalizedVariantCount: 0,
+      unnormalizedVariantCount: 0,
+      sampleUnnormalizedTitle: null,
       message: null,
     };
   }
@@ -479,147 +436,76 @@ async function getStandardPricingDiagnostics(
       status: "error",
       productHandle: null,
       checkedVariantCount: 0,
-      mismatchCount: 0,
-      sampleMismatch: null,
+      normalizedVariantCount: 0,
+      unnormalizedVariantCount: 0,
+      sampleUnnormalizedTitle: null,
       message: diagnostics.error,
     };
   }
 
-  const url = `https://${shopDomain}/products/${diagnostics.handle}.js?cb=${Date.now()}`;
+  const variants = Array.isArray(diagnostics.variants) ? diagnostics.variants : [];
 
-  try {
-    console.log("[standard-pricing-diagnostics] storefront fetch starting", {
-      shopDomain,
-      productHandle: diagnostics.handle,
-      url,
-      checkedVariantCount: diagnostics.variants.length,
-    });
+  let normalizedVariantCount = 0;
+  let unnormalizedVariantCount = 0;
+  let sampleUnnormalizedTitle: string | null = null;
 
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-      redirect: "follow",
-    });
+  for (const variant of variants) {
+    const rawPrice =
+      typeof variant?.price === "string" || typeof variant?.price === "number"
+        ? String(variant.price).trim()
+        : "";
 
-    console.log("[standard-pricing-diagnostics] storefront fetch completed", {
-      shopDomain,
-      productHandle: diagnostics.handle,
-      status: response.status,
-      ok: response.ok,
-      redirected: response.redirected,
-      finalUrl: response.url,
-      contentType: response.headers.get("content-type"),
-    });
+    const numeric = Number(rawPrice);
+    const normalized =
+      rawPrice.length > 0 && Number.isFinite(numeric)
+        ? numeric.toFixed(2)
+        : null;
 
-    if (!response.ok) {
-      return {
-        status: "error",
-        productHandle: diagnostics.handle,
-        checkedVariantCount: 0,
-        mismatchCount: 0,
-        sampleMismatch: null,
-        message: `Storefront diagnostics request failed with status ${response.status}.`,
-      };
-    }
+    if (normalized && rawPrice === normalized) {
+      normalizedVariantCount += 1;
+    } else {
+      unnormalizedVariantCount += 1;
 
-    const storefrontProduct = (await response.json()) as StorefrontProductResponse;
-    const storefrontVariants = Array.isArray(storefrontProduct?.variants)
-      ? storefrontProduct.variants
-      : [];
-
-    const storefrontVariantById = new Map<string, StorefrontProductVariant>();
-    for (const variant of storefrontVariants) {
-      if (variant?.id === undefined || variant?.id === null) continue;
-      storefrontVariantById.set(String(variant.id), variant);
-    }
-
-    const mismatches: StandardPricingDiagnosticMismatch[] = [];
-
-    for (const adminVariant of diagnostics.variants) {
-      const numericId = extractNumericId(adminVariant.id);
-      const storefrontVariant = storefrontVariantById.get(numericId);
-      if (!storefrontVariant) {
-        continue;
-      }
-
-      const adminPrice = formatMoneyString(adminVariant.price);
-      const storefrontPrice = formatMoneyString(storefrontVariant.price);
-
-      if (!adminPrice || !storefrontPrice) {
-        continue;
-      }
-
-      if (adminPrice !== storefrontPrice) {
-        mismatches.push({
-          variantId: numericId,
-          title: adminVariant.title,
-          adminPrice,
-          storefrontPrice,
-        });
+      if (!sampleUnnormalizedTitle) {
+        sampleUnnormalizedTitle =
+          typeof variant?.title === "string" && variant.title.trim().length > 0
+            ? variant.title.trim()
+            : "Untitled variant";
       }
     }
+  }
 
-    console.log("[standard-pricing-diagnostics] comparison finished", {
-      shopDomain,
-      productHandle: diagnostics.handle,
-      adminVariantCount: diagnostics.variants.length,
-      storefrontVariantCount: storefrontVariants.length,
-      mismatchCount: mismatches.length,
-      sampleMismatch: mismatches[0] ?? null,
-    });
+  console.log("[standard-pricing-diagnostics] admin-only diagnostics finished", {
+    shopDomain,
+    productHandle: diagnostics.handle,
+    checkedVariantCount: variants.length,
+    normalizedVariantCount,
+    unnormalizedVariantCount,
+    sampleUnnormalizedTitle,
+  });
 
-    if (mismatches.length > 0) {
-      return {
-        status: "mismatch",
-        productHandle: diagnostics.handle,
-        checkedVariantCount: diagnostics.variants.length,
-        mismatchCount: mismatches.length,
-        sampleMismatch: mismatches[0] ?? null,
-        message: null,
-      };
-    }
-
+  if (unnormalizedVariantCount > 0) {
     return {
-      status: "ok",
+      status: "warning",
       productHandle: diagnostics.handle,
-      checkedVariantCount: diagnostics.variants.length,
-      mismatchCount: 0,
-      sampleMismatch: null,
-      message: null,
-    };
-  } catch (error: any) {
-    console.error("[standard-pricing-diagnostics] storefront fetch threw", {
-      shopDomain,
-      productHandle: diagnostics.handle,
-      url,
-      errorName: error?.name ?? null,
-      errorMessage: error?.message ?? null,
-      errorCause:
-        error?.cause instanceof Error
-          ? {
-              name: error.cause.name,
-              message: error.cause.message,
-            }
-          : error?.cause ?? null,
-      stack: error?.stack ?? null,
-    });
-
-    const message =
-      error instanceof Error && error.message
-        ? error.message
-        : "Unknown storefront diagnostics error.";
-
-    return {
-      status: "error",
-      productHandle: diagnostics.handle,
-      checkedVariantCount: diagnostics.variants.length,
-      mismatchCount: 0,
-      sampleMismatch: null,
-      message,
+      checkedVariantCount: variants.length,
+      normalizedVariantCount,
+      unnormalizedVariantCount,
+      sampleUnnormalizedTitle,
+      message:
+        "One or more Environmental Fee variants do not appear normalized to two decimal places in Shopify admin.",
     };
   }
+
+  return {
+    status: "ok",
+    productHandle: diagnostics.handle,
+    checkedVariantCount: variants.length,
+    normalizedVariantCount,
+    unnormalizedVariantCount: 0,
+    sampleUnnormalizedTitle: null,
+    message: null,
+  };
 }
 
 async function saveShopMetafield(params: {
@@ -690,10 +576,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   let persistedEffectiveMode = storeContext.savedEffectiveMode;
 
-  if (
-    storeContext.shopId &&
-    storeContext.savedEffectiveMode !== activeMode
-  ) {
+  if (storeContext.shopId && storeContext.savedEffectiveMode !== activeMode) {
     const saved = await saveEffectiveMode({
       admin,
       shopId: storeContext.shopId,
@@ -1239,60 +1122,53 @@ export default function SettingsRoute() {
                 </Badge>
               </InlineStack>
 
-              {diagnostics.status === "mismatch" && (
-                <Banner title="Detected storefront fee price mismatch" tone="critical">
+              {diagnostics.status === "ok" && (
+                <Banner title="Standard fee admin diagnostics passed" tone="success">
                   <p>
-                    EcoCharge detected that one or more Environmental Fee product
-                    variants are priced differently in storefront than in Shopify
-                    admin.
+                    EcoCharge verified the Environmental Fee product in Shopify admin and
+                    found the fee variant pricing normalized correctly.
                   </p>
                   <p>
-                    This usually means Shopify Markets or Catalog price adjustments
-                    are affecting Standard mode fee variants.
-                  </p>
-                  {diagnostics.sampleMismatch && (
-                    <p>
-                      Example: <strong>{diagnostics.sampleMismatch.title}</strong>{" "}
-                      admin {diagnostics.sampleMismatch.adminPrice} vs storefront{" "}
-                      {diagnostics.sampleMismatch.storefrontPrice}.
-                    </p>
-                  )}
-                  <p>
-                    Checked {diagnostics.checkedVariantCount} fee variants and found{" "}
-                    {diagnostics.mismatchCount} mismatch
-                    {diagnostics.mismatchCount === 1 ? "" : "es"}.
+                    Checked {diagnostics.checkedVariantCount} fee variant
+                    {diagnostics.checkedVariantCount === 1 ? "" : "s"} in admin.
                   </p>
                   <p>
-                    Review <strong>Markets → Catalogs → Canada</strong> and make sure
-                    no percentage-based price increase or decrease is applied to the
-                    Environmental Fee product.
-                  </p>
-                  <p>
-                    For stronger fee integrity, <strong>Pro Cart Transform Mode requires
-                    both a Shopify Plus store and the Synorai EcoCharge Pro plan</strong>.
+                    Storefront pricing can still be affected by Shopify Markets or Catalog
+                    price adjustments, so review <strong>Markets → Catalogs → Canada</strong>
+                    if charged fee amounts ever look incorrect.
                   </p>
                 </Banner>
               )}
 
-              {diagnostics.status === "ok" && (
-                <Banner title="Standard fee pricing diagnostic passed" tone="success">
+              {diagnostics.status === "warning" && (
+                <Banner
+                  title="Standard fee admin diagnostics found a pricing warning"
+                  tone="warning"
+                >
                   <p>
-                    EcoCharge compared admin and storefront Environmental Fee variant
-                    prices and found no mismatch.
+                    EcoCharge verified the Environmental Fee product in Shopify admin, but
+                    one or more fee variants do not appear normalized to two decimal places.
                   </p>
+                  {diagnostics.sampleUnnormalizedTitle && (
+                    <p>
+                      Example variant:{" "}
+                      <strong>{diagnostics.sampleUnnormalizedTitle}</strong>
+                    </p>
+                  )}
                   <p>
                     Checked {diagnostics.checkedVariantCount} fee variant
-                    {diagnostics.checkedVariantCount === 1 ? "" : "s"} on the current
-                    storefront.
+                    {diagnostics.checkedVariantCount === 1 ? "" : "s"} in admin and found{" "}
+                    {diagnostics.unnormalizedVariantCount} variant
+                    {diagnostics.unnormalizedVariantCount === 1 ? "" : "s"} needing review.
                   </p>
                 </Banner>
               )}
 
               {diagnostics.status === "error" && (
-                <Banner title="Standard pricing diagnostics unavailable" tone="warning">
+                <Banner title="Standard admin diagnostics unavailable" tone="warning">
                   <p>
-                    EcoCharge could not complete storefront fee price diagnostics for
-                    this store.
+                    EcoCharge could not complete Environmental Fee product diagnostics for
+                    this store from Shopify admin.
                   </p>
                   {diagnostics.message && <p>{diagnostics.message}</p>}
                   {diagnostics.productHandle && (
@@ -1306,23 +1182,22 @@ export default function SettingsRoute() {
               {diagnostics.status === "not_available" && (
                 <Banner title="Important pricing warning" tone="warning">
                   <p>
-                    Standard mode uses real Shopify fee product variants for
-                    environmental fees.
+                    Standard mode uses real Shopify fee product variants for environmental
+                    fees.
                   </p>
                   <p>
-                    Shopify Markets and Catalog price adjustments can increase or
-                    decrease those fee variant prices in storefront and cart, even
-                    when EcoCharge is configured correctly.
+                    Shopify Markets and Catalog price adjustments can increase or decrease
+                    those fee variant prices in storefront and cart, even when EcoCharge is
+                    configured correctly.
                   </p>
                   <p>
-                    If Environmental Fee accuracy is critical, review{" "}
-                    <strong>Markets → Catalogs → Canada</strong> and make sure no
+                    Review <strong>Markets → Catalogs → Canada</strong> and make sure no
                     percentage-based price increase or decrease is applied to the
-                    Environmental Fee product, as this will affect the charged EcoFee.
+                    Environmental Fee product if exact fee parity is required.
                   </p>
                   <p>
-                    For stronger fee integrity, <strong>Pro Cart Transform Mode requires
-                    both a Shopify Plus store and the Synorai EcoCharge Pro plan</strong>.
+                    For stronger fee integrity, <strong>Pro Cart Transform Mode requires both
+                    a Shopify Plus store and the Synorai EcoCharge Pro plan</strong>.
                   </p>
                 </Banner>
               )}
