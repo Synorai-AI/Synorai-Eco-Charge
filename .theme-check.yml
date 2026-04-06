@@ -1,7 +1,7 @@
 extends:
   - theme-check:theme-app-extension
 
-AssetSizeAppBlockJavaScript:
+AssetSizeAppBlockJavascript:
   enabled: true
   severity: warning
   threshold_in_bytes: 35000

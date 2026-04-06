@@ -92,6 +92,70 @@
     return [];
   }
 
+var productTagCache = {};
+
+function getProductHandle(item) {
+  if (item && typeof item.handle === "string" && item.handle.trim()) {
+    return item.handle.trim();
+  }
+
+  if (item && typeof item.url === "string" && item.url.trim()) {
+    var match = item.url.match(/\/products\/([^/?#]+)/);
+    if (match && match[1]) {
+      return decodeURIComponent(match[1]);
+    }
+  }
+
+  return "";
+}
+
+function getProductJsonByHandle(handle) {
+  var normalizedHandle = typeof handle === "string" ? handle.trim() : "";
+  if (!normalizedHandle) {
+    return Promise.resolve(null);
+  }
+
+  if (productTagCache[normalizedHandle]) {
+    return productTagCache[normalizedHandle];
+  }
+
+  productTagCache[normalizedHandle] = fetch(
+    "/products/" + encodeURIComponent(normalizedHandle) + ".js",
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      credentials: "same-origin",
+    },
+  )
+    .then(parseJsonResponse)
+    .catch(function (error) {
+      console.error(
+        "[Synorai EcoCharge] Failed product tag fallback for handle:",
+        normalizedHandle,
+        error,
+      );
+      return null;
+    });
+
+  return productTagCache[normalizedHandle];
+}
+
+function resolveLineTags(item) {
+  var inlineTags = normalizeTags(item && item.tags);
+  if (inlineTags.length > 0) {
+    return Promise.resolve(inlineTags);
+  }
+
+  var handle = getProductHandle(item);
+  if (!handle) {
+    return Promise.resolve([]);
+  }
+
+  return getProductJsonByHandle(handle).then(function (product) {
+    return product ? normalizeTags(product.tags) : [];
+  });
+}
+
   function toVariantGid(id) {
     if (!id || !Number.isFinite(id)) return null;
     return "gid://shopify/ProductVariant/" + id;
@@ -228,44 +292,49 @@
       : null;
   }
 
-  function buildRequiredState(items, province, feeProductId, variantMap, feeByCategory, tagCategoryMap) {
-    var grouped = {};
+function buildRequiredState(items, province, feeProductId, variantMap, feeByCategory, tagCategoryMap) {
+  var grouped = {};
 
-    for (var i = 0; i < items.length; i += 1) {
-      var item = items[i];
-
-      if (isFeeLine(item, feeProductId, variantMap)) {
-        continue;
-      }
-
-      var quantity = typeof item.quantity === "number" ? item.quantity : 0;
-      if (quantity <= 0) continue;
-
-      var tags = normalizeTags(item.tags);
-      var resolved = highestCategoryFromTags(tags, feeByCategory, tagCategoryMap);
-      if (!resolved) continue;
-
-      var provinceMap = variantMap[province];
-      if (!provinceMap) continue;
-
-      var entry = provinceMap[resolved.category];
-      if (!entry) continue;
-
-      var key = province + "::" + resolved.category;
-      if (!grouped[key]) {
-        grouped[key] = {
-          province: province,
-          category: resolved.category,
-          variantId: entry.variantId,
-          quantity: quantity,
-        };
-      } else {
-        grouped[key].quantity += quantity;
-      }
+  function applyResolvedTags(item, tags) {
+    if (isFeeLine(item, feeProductId, variantMap)) {
+      return;
     }
 
-    return grouped;
+    var quantity = typeof item.quantity === "number" ? item.quantity : 0;
+    if (quantity <= 0) return;
+
+    var resolved = highestCategoryFromTags(tags, feeByCategory, tagCategoryMap);
+    if (!resolved) return;
+
+    var provinceMap = variantMap[province];
+    if (!provinceMap) return;
+
+    var entry = provinceMap[resolved.category];
+    if (!entry) return;
+
+    var key = province + "::" + resolved.category;
+    if (!grouped[key]) {
+      grouped[key] = {
+        province: province,
+        category: resolved.category,
+        variantId: entry.variantId,
+        quantity: quantity,
+      };
+    } else {
+      grouped[key].quantity += quantity;
+    }
   }
+
+  return Promise.all(
+    items.map(function (item) {
+      return resolveLineTags(item).then(function (tags) {
+        applyResolvedTags(item, tags);
+      });
+    }),
+  ).then(function () {
+    return grouped;
+  });
+}
 
   function buildExistingState(items, feeProductId, variantMap) {
     var grouped = {};
@@ -381,48 +450,48 @@
       .then(function (cart) {
         var items = Array.isArray(cart.items) ? cart.items : [];
 
-        var required = buildRequiredState(
+        return buildRequiredState(
           items,
           province,
           config.feeProductId,
           config.variantMap,
           feeByCategory,
           config.tagCategoryMap,
-        );
+        ).then(function (required) {
+          var existing = buildExistingState(
+            items,
+            config.feeProductId,
+            config.variantMap,
+          );
 
-        var existing = buildExistingState(
-          items,
-          config.feeProductId,
-          config.variantMap,
-        );
+          var diff = diffStates(required, existing);
+          var chain = Promise.resolve();
 
-        var diff = diffStates(required, existing);
-        var chain = Promise.resolve();
-
-        diff.toRemove.forEach(function (line) {
-          chain = chain.then(function () {
-            return changeCartLine(line.key, 0);
+          diff.toRemove.forEach(function (line) {
+            chain = chain.then(function () {
+              return changeCartLine(line.key, 0);
+            });
           });
-        });
 
-        diff.toUpdate.forEach(function (line) {
-          chain = chain.then(function () {
-            return changeCartLine(line.key, line.quantity);
+          diff.toUpdate.forEach(function (line) {
+            chain = chain.then(function () {
+              return changeCartLine(line.key, line.quantity);
+            });
           });
-        });
 
-        diff.toAdd.forEach(function (line) {
-          chain = chain.then(function () {
-            return addCartItem(
-              line.variantId,
-              line.quantity,
-              buildFeeProps(line.province, line.category),
-            );
+          diff.toAdd.forEach(function (line) {
+            chain = chain.then(function () {
+              return addCartItem(
+                line.variantId,
+                line.quantity,
+                buildFeeProps(line.province, line.category),
+              );
+            });
           });
-        });
 
-        return chain.then(function () {
-          dispatchCartRefresh();
+          return chain.then(function () {
+            dispatchCartRefresh();
+          });
         });
       })
       .catch(function (error) {
