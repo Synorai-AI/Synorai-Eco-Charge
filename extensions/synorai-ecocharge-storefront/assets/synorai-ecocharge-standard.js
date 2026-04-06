@@ -397,13 +397,43 @@ function buildRequiredState(items, province, feeProductId, variantMap, feeByCate
     };
   }
 
-  function dispatchCartRefresh() {
-    var names = ["cart:refresh", "cart:updated", "cart:change"];
-    for (var i = 0; i < names.length; i += 1) {
-      document.dispatchEvent(new CustomEvent(names[i], { bubbles: true }));
-    }
-    window.dispatchEvent(new CustomEvent("synorai:cart-synced", { bubbles: true }));
+ function dispatchCartRefresh(hasCartMutation) {
+  var names = ["cart:refresh", "cart:updated", "cart:change"];
+  for (var i = 0; i < names.length; i += 1) {
+    document.dispatchEvent(new CustomEvent(names[i], { bubbles: true }));
   }
+  window.dispatchEvent(new CustomEvent("synorai:cart-synced", { bubbles: true }));
+
+  if (!hasCartMutation) {
+    return;
+  }
+
+  var isCartPage =
+    window.location &&
+    typeof window.location.pathname === "string" &&
+    /^\/cart\/?$/.test(window.location.pathname);
+
+  if (!isCartPage) {
+    return;
+  }
+
+  try {
+    var reloadKey = "__synoraiEcoChargeCartReloadAt";
+    var now = Date.now();
+    var lastReloadAt = Number(sessionStorage.getItem(reloadKey) || "0");
+
+    if (!lastReloadAt || now - lastReloadAt > 2500) {
+      sessionStorage.setItem(reloadKey, String(now));
+      window.setTimeout(function () {
+        window.location.reload();
+      }, 150);
+    }
+  } catch (error) {
+    window.setTimeout(function () {
+      window.location.reload();
+    }, 150);
+  }
+}
 
   var syncInFlight = false;
   var syncQueued = false;
@@ -489,8 +519,13 @@ function buildRequiredState(items, province, feeProductId, variantMap, feeByCate
             });
           });
 
+                   var hasCartMutation =
+            diff.toRemove.length > 0 ||
+            diff.toUpdate.length > 0 ||
+            diff.toAdd.length > 0;
+
           return chain.then(function () {
-            dispatchCartRefresh();
+            dispatchCartRefresh(hasCartMutation);
           });
         });
       })
