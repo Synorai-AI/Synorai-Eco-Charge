@@ -30,6 +30,67 @@
       "province": {{ province | json }},
       "feeProductId": {{ fee_product_id | json }},
       "variantMapJson": {{ variant_map_json | json }},
+      "feeByProvince": {
+        "AB": {
+          "computers": 0.45,
+          "laptops": 0.30,
+          "printers": 1.65,
+          "peripherals": 0,
+          "av": 0.55,
+          "cellphones": 0,
+          "display-small": 1.30,
+          "display-large": 1.30,
+          "display-xlarge": 2.75,
+          "all-in-one": 1.30,
+          "small-appliances": 0.40,
+          "tools": 0.65
+        },
+        "BC": {
+          "computers": 0.70,
+          "laptops": 0.45,
+          "printers": 6.50,
+          "peripherals": 0.35,
+          "av": 2.80,
+          "cellphones": 0.20,
+          "display-small": 3.50,
+          "display-large": 4.50,
+          "display-xlarge": 7.75,
+          "all-in-one": 3.50,
+          "small-appliances": 0,
+          "tools": 0
+        },
+        "SK": {
+          "computers": 0.80,
+          "laptops": 0.45,
+          "printers": 4.50,
+          "peripherals": 0.20,
+          "av": 1.25,
+          "cellphones": 0,
+          "display-small": 1.80,
+          "display-large": 3.10,
+          "display-xlarge": 7.00,
+          "all-in-one": 1.80,
+          "small-appliances": 0,
+          "tools": 0
+        }
+      },
+      "tagCategoryMap": {
+        "eco-category-computers": "computers",
+        "eco-category-laptops": "laptops",
+        "eco-category-printers": "printers",
+        "eco-category-peripherals": "peripherals",
+        "eco-category-av": "av",
+        "eco-category-cellphones": "cellphones",
+        "eco-category-display-small": "display-small",
+        "eco-category-display-large": "display-large",
+        "eco-category-display-xlarge": "display-xlarge",
+        "eco-category-all-in-one": "all-in-one",
+        "eco-category-monitor-small": "display-small",
+        "eco-category-monitor-large": "display-large",
+        "eco-category-monitor-xlarge": "display-xlarge",
+        "eco-category-small-appliances": "small-appliances",
+        "eco-category-tools": "tools"
+      },
       "autoRun": true,
       "debug": {{ block.settings.debug | json }}
     }
@@ -46,7 +107,7 @@
       "type": "checkbox",
       "id": "debug",
       "label": "Enable storefront debug logging",
-      "default": true
+      "default": false
     }
   ]
 }
