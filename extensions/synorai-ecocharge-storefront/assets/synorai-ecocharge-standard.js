@@ -398,7 +398,56 @@ function buildRequiredState(items, province, feeProductId, variantMap, feeByCate
     };
   }
 
- function dispatchCartRefresh(hasCartMutation) {
+function refreshCartDrawerUi() {
+  var selectors = [
+    "#CartDrawer",
+    "cart-drawer",
+    ".drawer",
+    ".cart-drawer",
+    "#cart-drawer",
+  ];
+
+  var drawerRoot = null;
+  for (var i = 0; i < selectors.length; i += 1) {
+    drawerRoot = document.querySelector(selectors[i]);
+    if (drawerRoot) break;
+  }
+
+  if (!drawerRoot) {
+    return Promise.resolve(false);
+  }
+
+  return fetch("/cart.js", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+  })
+    .then(parseJsonResponse)
+    .then(function (cart) {
+      var itemCountSelectors = [
+        ".cart-count-bubble span",
+        ".cart-count-bubble",
+        "#cart-icon-bubble",
+        "[data-cart-count]",
+      ];
+
+      for (var j = 0; j < itemCountSelectors.length; j += 1) {
+        var nodes = document.querySelectorAll(itemCountSelectors[j]);
+        for (var k = 0; k < nodes.length; k += 1) {
+          if ("textContent" in nodes[k]) {
+            nodes[k].textContent = String(cart && typeof cart.item_count === "number" ? cart.item_count : 0);
+          }
+        }
+      }
+
+      return true;
+    })
+    .catch(function () {
+      return false;
+    });
+}
+
+  function dispatchCartRefresh(hasCartMutation) {
   var names = ["cart:refresh", "cart:updated", "cart:change"];
   for (var i = 0; i < names.length; i += 1) {
     document.dispatchEvent(new CustomEvent(names[i], { bubbles: true }));
@@ -414,26 +463,29 @@ function buildRequiredState(items, province, feeProductId, variantMap, feeByCate
     typeof window.location.pathname === "string" &&
     /^\/cart\/?$/.test(window.location.pathname);
 
-  if (!isCartPage) {
-    return;
-  }
+  if (isCartPage) {
+    try {
+      var reloadKey = "__synoraiEcoChargeCartReloadAt";
+      var now = Date.now();
+      var lastReloadAt = Number(sessionStorage.getItem(reloadKey) || "0");
 
-  try {
-    var reloadKey = "__synoraiEcoChargeCartReloadAt";
-    var now = Date.now();
-    var lastReloadAt = Number(sessionStorage.getItem(reloadKey) || "0");
-
-    if (!lastReloadAt || now - lastReloadAt > 2500) {
-      sessionStorage.setItem(reloadKey, String(now));
+      if (!lastReloadAt || now - lastReloadAt > 2500) {
+        sessionStorage.setItem(reloadKey, String(now));
+        window.setTimeout(function () {
+          window.location.reload();
+        }, 150);
+      }
+    } catch (error) {
       window.setTimeout(function () {
         window.location.reload();
       }, 150);
     }
-  } catch (error) {
-    window.setTimeout(function () {
-      window.location.reload();
-    }, 150);
+    return;
   }
+
+  window.setTimeout(function () {
+    refreshCartDrawerUi();
+  }, 120);
 }
 
   var syncInFlight = false;
