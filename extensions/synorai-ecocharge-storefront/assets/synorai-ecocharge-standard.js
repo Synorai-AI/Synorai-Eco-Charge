@@ -93,6 +93,8 @@
   }
 
 var productTagCache = {};
+var PRODUCT_TAG_SESSION_CACHE_KEY = "__synoraiEcoChargeProductTags";
+var PRODUCT_TAG_SESSION_TTL_MS = 15 * 60 * 1000;
 
 function getProductHandle(item) {
   if (item && typeof item.handle === "string" && item.handle.trim()) {
@@ -109,13 +111,75 @@ function getProductHandle(item) {
   return "";
 }
 
-function getProductJsonByHandle(handle) {
+function readPersistedProductTagCache() {
+  try {
+    var raw = sessionStorage.getItem(PRODUCT_TAG_SESSION_CACHE_KEY);
+    if (!raw) return {};
+
+    var parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function writePersistedProductTagCache(cache) {
+  try {
+    sessionStorage.setItem(
+      PRODUCT_TAG_SESSION_CACHE_KEY,
+      JSON.stringify(cache || {}),
+    );
+  } catch (error) {
+    // Ignore storage write failures.
+  }
+}
+
+function getPersistedTagsByHandle(handle) {
+  var normalizedHandle = typeof handle === "string" ? handle.trim() : "";
+  if (!normalizedHandle) return null;
+
+  var cache = readPersistedProductTagCache();
+  var entry = cache[normalizedHandle];
+  if (!entry || typeof entry !== "object") return null;
+
+  var expiresAt = Number(entry.expiresAt || 0);
+  if (!expiresAt || Date.now() > expiresAt) {
+    delete cache[normalizedHandle];
+    writePersistedProductTagCache(cache);
+    return null;
+  }
+
+  return normalizeTags(entry.tags);
+}
+
+function setPersistedTagsByHandle(handle, tags) {
+  var normalizedHandle = typeof handle === "string" ? handle.trim() : "";
+  if (!normalizedHandle) return;
+
+  var normalizedTags = normalizeTags(tags);
+  var cache = readPersistedProductTagCache();
+
+  cache[normalizedHandle] = {
+    tags: normalizedTags,
+    expiresAt: Date.now() + PRODUCT_TAG_SESSION_TTL_MS,
+  };
+
+  writePersistedProductTagCache(cache);
+}
+
+function getProductTagsByHandle(handle) {
   var normalizedHandle = typeof handle === "string" ? handle.trim() : "";
   if (!normalizedHandle) {
-    return Promise.resolve(null);
+    return Promise.resolve([]);
   }
 
   if (productTagCache[normalizedHandle]) {
+    return productTagCache[normalizedHandle];
+  }
+
+  var persistedTags = getPersistedTagsByHandle(normalizedHandle);
+  if (persistedTags && persistedTags.length > 0) {
+    productTagCache[normalizedHandle] = Promise.resolve(persistedTags);
     return productTagCache[normalizedHandle];
   }
 
@@ -128,13 +192,20 @@ function getProductJsonByHandle(handle) {
     },
   )
     .then(parseJsonResponse)
+    .then(function (product) {
+      var tags = normalizeTags(product && product.tags);
+      if (tags.length > 0) {
+        setPersistedTagsByHandle(normalizedHandle, tags);
+      }
+      return tags;
+    })
     .catch(function (error) {
       console.error(
         "[Synorai EcoCharge] Failed product tag fallback for handle:",
         normalizedHandle,
         error,
       );
-      return null;
+      return [];
     });
 
   return productTagCache[normalizedHandle];
@@ -151,9 +222,7 @@ function resolveLineTags(item) {
     return Promise.resolve([]);
   }
 
-  return getProductJsonByHandle(handle).then(function (product) {
-    return product ? normalizeTags(product.tags) : [];
-  });
+  return getProductTagsByHandle(handle);
 }
 
   function toVariantGid(id) {
