@@ -10,6 +10,7 @@ type LoaderData = {
   apiKey: string;
   hasActivePayment: boolean;
   isDevelopmentStore: boolean;
+  activeSubscriptionName: string | null;
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -37,24 +38,37 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const isDevelopmentStore =
     responseJson?.data?.shop?.plan?.partnerDevelopment === true;
 
-  const activeSubscriptions =
-    responseJson?.data?.appInstallation?.activeSubscriptions ?? [];
+  const activeSubscriptions: Array<{
+    id?: string | null;
+    name?: string | null;
+    status?: string | null;
+  }> = responseJson?.data?.appInstallation?.activeSubscriptions ?? [];
 
-  const hasActivePayment =
-    isDevelopmentStore ||
-    activeSubscriptions.some(
-      (subscription: { status?: string }) => subscription.status === "ACTIVE",
-    );
+  const activeSubscription =
+    activeSubscriptions.find(
+      (subscription) =>
+        String(subscription?.status || "").toUpperCase() === "ACTIVE",
+    ) ?? null;
+
+  const hasActivePayment = Boolean(activeSubscription);
+
+  const activeSubscriptionName =
+    typeof activeSubscription?.name === "string" &&
+    activeSubscription.name.trim().length > 0
+      ? activeSubscription.name.trim()
+      : null;
 
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
     hasActivePayment,
     isDevelopmentStore,
+    activeSubscriptionName,
   };
 };
 
 export default function App() {
-  const { apiKey, hasActivePayment } = useLoaderData() as LoaderData;
+  const { apiKey, hasActivePayment, isDevelopmentStore, activeSubscriptionName } =
+    useLoaderData() as LoaderData;
 
   return (
     <ShopifyAppProvider apiKey={apiKey} isEmbeddedApp>
@@ -92,9 +106,22 @@ export default function App() {
                 subscription.
               </p>
 
+              {isDevelopmentStore && (
+                <p style={{ lineHeight: 1.6 }}>
+                  Development stores also require an active Synorai EcoCharge test
+                  subscription before app access is allowed.
+                </p>
+              )}
+
+              {activeSubscriptionName && (
+                <p style={{ lineHeight: 1.6 }}>
+                  Detected subscription: <strong>{activeSubscriptionName}</strong>
+                </p>
+              )}
+
               <p style={{ lineHeight: 1.6 }}>
-                Please subscribe to a plan in Shopify billing, then reload the app
-                and continue setup.
+                Please approve a Synorai EcoCharge plan in Shopify billing, then
+                reload the app and continue setup.
               </p>
 
               <p style={{ marginBottom: 0, lineHeight: 1.6 }}>
