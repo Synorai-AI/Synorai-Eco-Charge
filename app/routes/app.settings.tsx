@@ -42,6 +42,7 @@ const PROVINCE_OPTIONS = [
 type StoreCapability = "development" | "plus" | "standard";
 type ActiveMode = "standard_fee_product" | "pro_cart_transform";
 type DevModeOverride = "" | "standard_fee_product" | "pro_cart_transform";
+type BillingPlanTier = "none" | "standard" | "pro";
 
 const DEV_MODE_OPTIONS = [
   { label: "Automatic (recommended)", value: "" },
@@ -63,10 +64,12 @@ type LoaderData = {
   shopDomain: string;
   currentProvince: Province | null;
 
-  storeCapability: StoreCapability;
+    storeCapability: StoreCapability;
   isDevelopmentStore: boolean;
   isPlusStore: boolean;
   hasActivePayment: boolean;
+  activeSubscriptionName: string | null;
+  billingPlanTier: BillingPlanTier;
 
   devModeOverride: DevModeOverride;
   activeMode: ActiveMode;
@@ -110,6 +113,74 @@ function normalizePlanName(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function detectBillingPlanTier(subscriptionName: string | null): BillingPlanTier {
+  const name = normalizePlanName(subscriptionName);
+
+  if (!name) return "none";
+  if (name.includes("pro")) return "pro";
+  if (name.includes("standard") || name.includes("basic")) return "standard";
+
+  return "none";
+}
+
+function getBillingPlanLabel(tier: BillingPlanTier): string {
+  switch (tier) {
+    case "pro":
+      return "Pro";
+    case "standard":
+      return "Standard";
+    case "none":
+    default:
+      return "None";
+  }
+}
+
+async function getBillingState(admin: any): Promise<{
+  hasActivePayment: boolean;
+  activeSubscriptionName: string | null;
+  billingPlanTier: BillingPlanTier;
+}> {
+  const query = `#graphql
+    query GetBillingState {
+      currentAppInstallation {
+        activeSubscriptions {
+          id
+          name
+          status
+          test
+        }
+      }
+    }
+  `;
+
+  const res = await admin.graphql(query);
+  const json = await res.json();
+
+  const subscriptions: Array<{
+    id?: string | null;
+    name?: string | null;
+    status?: string | null;
+    test?: boolean | null;
+  }> = json?.data?.currentAppInstallation?.activeSubscriptions ?? [];
+
+  const activeSubscription =
+    subscriptions.find(
+      (sub) => String(sub?.status || "").toUpperCase() === "ACTIVE",
+    ) ?? null;
+
+  const activeSubscriptionName =
+    typeof activeSubscription?.name === "string" &&
+    activeSubscription.name.trim().length > 0
+      ? activeSubscription.name.trim()
+      : null;
+
+  return {
+    hasActivePayment: Boolean(activeSubscription),
+    activeSubscriptionName,
+    billingPlanTier: detectBillingPlanTier(activeSubscriptionName),
+  };
+}
+
 function detectStoreCapability(plan: {
   partnerDevelopment?: boolean | null;
   publicDisplayName?: string | null;
@@ -144,16 +215,31 @@ function resolveActiveMode(params: {
   isDevelopmentStore: boolean;
   isPlusStore: boolean;
   devModeOverride: DevModeOverride;
+  hasActivePayment: boolean;
+  billingPlanTier: BillingPlanTier;
 }): ActiveMode {
-  if (params.isDevelopmentStore && params.devModeOverride) {
-    return params.devModeOverride;
+  const canUseProCartTransform =
+    params.hasActivePayment &&
+    params.billingPlanTier === "pro" &&
+    params.isPlusStore;
+
+  if (params.isDevelopmentStore && params.hasActivePayment && params.devModeOverride) {
+    if (
+      params.devModeOverride === "pro_cart_transform" &&
+      canUseProCartTransform
+    ) {
+      return "pro_cart_transform";
+    }
+
+    if (params.devModeOverride === "standard_fee_product") {
+      return "standard_fee_product";
+    }
   }
 
-  return params.isDevelopmentStore || params.isPlusStore
+  return canUseProCartTransform
     ? "pro_cart_transform"
     : "standard_fee_product";
 }
-
 async function getFunctionId(admin: any): Promise<string | null> {
   const query = `#graphql
     query GetFunctions {
@@ -566,12 +652,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
 
   const storeContext = await getStoreContext(admin);
-  const hasActivePayment = storeContext.isDevelopmentStore ? false : true;
+  const billingState = await getBillingState(admin);
 
   const activeMode = resolveActiveMode({
     isDevelopmentStore: storeContext.isDevelopmentStore,
     isPlusStore: storeContext.isPlusStore,
     devModeOverride: storeContext.devModeOverride,
+    hasActivePayment: billingState.hasActivePayment,
+    billingPlanTier: billingState.billingPlanTier,
   });
 
   let persistedEffectiveMode = storeContext.savedEffectiveMode;
@@ -610,7 +698,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
     storeCapability: storeContext.storeCapability,
     isDevelopmentStore: storeContext.isDevelopmentStore,
     isPlusStore: storeContext.isPlusStore,
-    hasActivePayment,
+    hasActivePayment: billingState.hasActivePayment,
+    activeSubscriptionName: billingState.activeSubscriptionName,
+    billingPlanTier: billingState.billingPlanTier,
 
     devModeOverride: storeContext.devModeOverride,
     activeMode,
@@ -810,10 +900,14 @@ export async function action({ request }: ActionFunctionArgs) {
       });
     }
 
+    const billingState = await getBillingState(admin);
+
     const effectiveMode = resolveActiveMode({
       isDevelopmentStore: storeContext.isDevelopmentStore,
       isPlusStore: storeContext.isPlusStore,
       devModeOverride: rawValue,
+      hasActivePayment: billingState.hasActivePayment,
+      billingPlanTier: billingState.billingPlanTier,
     });
 
     const savedEffectiveMode = await saveEffectiveMode({
@@ -1041,6 +1135,14 @@ export default function SettingsRoute() {
               <Text as="p" variant="bodyMd">
                 <strong>Billing:</strong>{" "}
                 {loaderData.hasActivePayment ? "Active" : "Inactive"}
+              </Text>
+              <Text as="p" variant="bodyMd">
+                <strong>Plan tier:</strong>{" "}
+                {getBillingPlanLabel(loaderData.billingPlanTier)}
+              </Text>
+              <Text as="p" variant="bodyMd">
+                <strong>Active subscription:</strong>{" "}
+                {loaderData.activeSubscriptionName ?? "None"}
               </Text>
             </BlockStack>
           </BlockStack>
