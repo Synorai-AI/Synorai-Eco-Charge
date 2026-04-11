@@ -84,6 +84,15 @@ type ProductVariantNode = {
   } | null;
 };
 
+type PublicationNode = {
+  id: string;
+  name?: string | null;
+  catalog?: {
+    title?: string | null;
+    status?: string | null;
+  } | null;
+};
+
 type FoundStandardFeeProduct = {
   productId: string | null;
   title: string | null;
@@ -210,15 +219,177 @@ function getReadableErrorMessage(
   return fallback;
 }
 
+function normalizePublicationLabel(value: string | null | undefined): string {
+  return typeof value === "string"
+    ? value.toLowerCase().replace(/\s+/g, " ").trim()
+    : "";
+}
+
+function isOnlineStorePublication(publication: PublicationNode): boolean {
+  const labels = [
+    normalizePublicationLabel(publication.name),
+    normalizePublicationLabel(publication.catalog?.title),
+  ].filter(Boolean);
+
+  return labels.some((label) => label.includes("online store"));
+}
+
+function isPosPublication(publication: PublicationNode): boolean {
+  const labels = [
+    normalizePublicationLabel(publication.name),
+    normalizePublicationLabel(publication.catalog?.title),
+  ].filter(Boolean);
+
+  return labels.some(
+    (label) => label.includes("point of sale") || /\bpos\b/.test(label),
+  );
+}
+
+async function getTargetPublicationIds(
+  admin: AdminGraphqlClient,
+): Promise<{ ok: true; publicationIds: string[] } | { ok: false; error: string }> {
+  try {
+    const query = `#graphql
+      query GetTargetPublications {
+        publications(first: 50) {
+          nodes {
+            id
+            name
+            catalog {
+              title
+              status
+            }
+          }
+        }
+      }
+    `;
+
+    const res = await admin.graphql(query);
+    const json = await res.json();
+
+    const topLevelErrors = json?.errors ?? [];
+    if (topLevelErrors.length > 0) {
+      return {
+        ok: false,
+        error: topLevelErrors
+          .map((e: any) => e?.message || "Unknown GraphQL error")
+          .join(", "),
+      };
+    }
+
+    const publications: PublicationNode[] = json?.data?.publications?.nodes ?? [];
+    const ids = new Set<string>();
+
+    for (const publication of publications) {
+      if (!publication?.id) continue;
+
+      if (
+        isOnlineStorePublication(publication) ||
+        isPosPublication(publication)
+      ) {
+        ids.add(publication.id);
+      }
+    }
+
+    return {
+      ok: true,
+      publicationIds: Array.from(ids),
+    };
+  } catch (error) {
+    logStandardFeeError("getTargetPublicationIds failed", error);
+    return {
+      ok: false,
+      error: getReadableErrorMessage(
+        "Loading Online Store and POS publications failed.",
+        error,
+      ),
+    };
+  }
+}
+
+async function publishStandardFeeProduct(
+  admin: AdminGraphqlClient,
+  productId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const targets = await getTargetPublicationIds(admin);
+  if (!targets.ok) {
+    return targets;
+  }
+
+  if (targets.publicationIds.length === 0) {
+    return {
+      ok: false,
+      error:
+        "No Online Store or POS publication was found for this shop. Ensure the app has read_publications and write_publications scopes.",
+    };
+  }
+
+  try {
+    const mutation = `#graphql
+      mutation PublishStandardFeeProduct($id: ID!, $input: [PublicationInput!]!) {
+        publishablePublish(id: $id, input: $input) {
+          publishable {
+            availablePublicationsCount {
+              count
+            }
+            resourcePublicationsCount {
+              count
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      id: productId,
+      input: targets.publicationIds.map((publicationId) => ({
+        publicationId,
+      })),
+    };
+
+    const res = await admin.graphql(mutation, { variables });
+    const json = await res.json();
+
+    const topLevelErrors = json?.errors ?? [];
+    if (topLevelErrors.length > 0) {
+      return {
+        ok: false,
+        error: topLevelErrors
+          .map((e: any) => e?.message || "Unknown GraphQL error")
+          .join(", "),
+      };
+    }
+
+    const userErrors = json?.data?.publishablePublish?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      return {
+        ok: false,
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    logStandardFeeError("publishStandardFeeProduct failed", error);
+    return {
+      ok: false,
+      error: getReadableErrorMessage(
+        "Publishing standard fee product to Online Store and POS failed.",
+        error,
+      ),
+    };
+  }
+}
+
 async function syncStandardFeeProductIdentity(
   admin: AdminGraphqlClient,
   productId: string,
-  currentTitle: string | null,
+  _currentTitle: string | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (currentTitle === STANDARD_FEE_PRODUCT_TITLE) {
-    return { ok: true };
-  }
-
   try {
     const mutation = `#graphql
       mutation UpdateStandardFeeProductIdentity($input: ProductUpdateInput!) {
@@ -228,6 +399,7 @@ async function syncStandardFeeProductIdentity(
             title
             productType
             vendor
+            status
           }
           userErrors {
             field
@@ -244,6 +416,7 @@ async function syncStandardFeeProductIdentity(
         productType: STANDARD_FEE_PRODUCT_TYPE,
         vendor: STANDARD_FEE_PRODUCT_VENDOR,
         tags: [STANDARD_FEE_PRODUCT_TAG],
+        status: "ACTIVE",
       },
     };
 
@@ -344,6 +517,18 @@ export async function createStandardFeeProduct(
         };
       }
 
+      const published = await publishStandardFeeProduct(
+        admin,
+        existing.productId,
+      );
+
+      if (!published.ok) {
+        return {
+          ok: false,
+          error: published.error,
+        };
+      }
+
       return {
         ok: true,
         productId: existing.productId,
@@ -396,6 +581,14 @@ export async function createStandardFeeProduct(
       return {
         ok: false,
         error: "Product creation returned no product ID.",
+      };
+    }
+
+    const published = await publishStandardFeeProduct(admin, productId);
+    if (!published.ok) {
+      return {
+        ok: false,
+        error: published.error,
       };
     }
 

@@ -223,13 +223,9 @@ function resolveLineTags(item) {
     }).then(parseJsonResponse);
   }
 
-  function buildFeeProps(province, category) {
-    return {
-      _synorai_fee: "true",
-      _synorai_province: province,
-      _synorai_category: category,
-    };
-  }
+  function buildFeeProps() {
+  return {};
+}
 
   function getVariantMapEntryByVariantId(variantMap, variantId) {
     var provinces = Object.keys(variantMap || {});

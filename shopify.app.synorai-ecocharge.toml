@@ -17,7 +17,7 @@ api_version = "2026-04"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_cart_transforms,write_products"
+scopes = "read_publications,write_publications,write_cart_transforms,write_products"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 

@@ -50,6 +50,19 @@ const DEV_MODE_OPTIONS = [
   { label: "Force Standard Fee Product Mode", value: "standard_fee_product" },
 ];
 
+const SHOPIFY_APP_CLIENT_ID = "6a8e1a956bb0c2301764cac00a74b0bf";
+const STANDARD_APP_EMBED_HANDLE = "synorai-ecocharge-standard-embed";
+
+function buildStandardAppEmbedEditorUrl(shopDomain: string): string {
+  const base = `https://${shopDomain}/admin/themes/current/editor`;
+  const params = new URLSearchParams({
+    context: "apps",
+    activateAppId: `${SHOPIFY_APP_CLIENT_ID}/${STANDARD_APP_EMBED_HANDLE}`,
+  });
+
+  return `${base}?${params.toString()}`;
+}
+
 type StandardPricingDiagnostics = {
   status: "not_available" | "ok" | "warning" | "error";
   productHandle: string | null;
@@ -1091,6 +1104,20 @@ export default function SettingsRoute() {
       : loaderData.isStandardSetupComplete;
 
   const diagnostics = loaderData.standardPricingDiagnostics;
+  const appEmbedEditorUrl = useMemo(() => {
+    return buildStandardAppEmbedEditorUrl(loaderData.shopDomain);
+  }, [loaderData.shopDomain]);
+
+const openAppEmbedEditor = () => {
+  if (typeof window === "undefined") return;
+
+  if (window.top && typeof window.top.location.assign === "function") {
+    window.top.location.assign(appEmbedEditorUrl);
+    return;
+  }
+
+  window.location.assign(appEmbedEditorUrl);
+};
 
   return (
     <Page title="EcoCharge Settings">
@@ -1122,6 +1149,21 @@ export default function SettingsRoute() {
               <Text as="p" variant="bodyMd">
                 <strong>Mode:</strong> {getModeLabel(loaderData.activeMode)}
               </Text>
+            <Banner title="Storefront app embed required" tone="warning">
+              <p>
+                Standard mode also requires the EcoCharge theme app embed to be enabled
+                on the published theme.
+              </p>
+              <p>
+                After install, click the button below, then open <strong>App embeds</strong>,
+                enable <strong>EcoCharge Standard</strong>, and save the theme.
+              </p>
+              <div style={{ marginTop: 12 }}>
+                <Button variant="primary" onClick={openAppEmbedEditor}>
+                  Open Theme Editor
+                </Button>
+              </div>
+            </Banner>
               <Text as="p" variant="bodyMd">
                 <strong>Saved effective mode:</strong>{" "}
                 {loaderData.savedEffectiveMode
@@ -1237,7 +1279,7 @@ export default function SettingsRoute() {
                   <p>
                     Storefront pricing can still be affected by Shopify Markets or Catalog
                     price adjustments, so review <strong>Markets → Catalogs → Canada</strong>
-                    if charged fee amounts ever look incorrect.
+                     if charged fee amounts ever look incorrect.
                   </p>
                 </Banner>
               )}

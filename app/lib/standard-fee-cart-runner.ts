@@ -27,15 +27,8 @@ export type StandardFeeCartRunnerResult = {
   error: string;
 };
 
-function buildFeeLineProperties(
-  province: ProvinceCode,
-  category: string,
-): Record<string, string> {
-  return {
-    _synorai_fee: "true",
-    _synorai_province: province,
-    _synorai_category: category,
-  };
+function buildFeeLineProperties(): Record<string, string> {
+  return {};
 }
 
 export async function runStandardFeeCartSync(
