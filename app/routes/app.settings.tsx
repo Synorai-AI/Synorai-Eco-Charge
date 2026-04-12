@@ -53,13 +53,13 @@ const DEV_MODE_OPTIONS = [
 const SHOPIFY_APP_CLIENT_ID = "6a8e1a956bb0c2301764cac00a74b0bf";
 const STANDARD_APP_EMBED_HANDLE = "synorai-ecocharge-standard-embed";
 
-function buildStandardAppEmbedEditorUrl(): string {
+function buildStandardAppEmbedEditorUrl(shopDomain: string): string {
+  const base = `https://${shopDomain}/admin/themes/current/editor`;
   const params = new URLSearchParams({
     context: "apps",
-    activateAppId: `${SHOPIFY_APP_CLIENT_ID}/${STANDARD_APP_EMBED_HANDLE}`,
   });
 
-  return `shopify://admin/themes/current/editor?${params.toString()}`;
+  return `${base}?${params.toString()}`;
 }
 
 type StandardPricingDiagnostics = {
@@ -1104,13 +1104,8 @@ export default function SettingsRoute() {
 
   const diagnostics = loaderData.standardPricingDiagnostics;
   const appEmbedEditorUrl = useMemo(() => {
-    return buildStandardAppEmbedEditorUrl();
-  }, []);
-
-  const openAppEmbedEditor = () => {
-    if (typeof window === "undefined") return;
-    window.open(appEmbedEditorUrl, "_top");
-  };
+    return buildStandardAppEmbedEditorUrl(loaderData.shopDomain);
+  }, [loaderData.shopDomain]);
 
   return (
     <Page title="EcoCharge Settings">
@@ -1152,7 +1147,7 @@ export default function SettingsRoute() {
                 enable <strong>EcoCharge Standard</strong>, and save the theme.
               </p>
               <div style={{ marginTop: 12 }}>
-                <Button variant="primary" onClick={openAppEmbedEditor}>
+                <Button variant="primary" url={appEmbedEditorUrl} target="_top">
                   Open Theme Editor
                 </Button>
               </div>
@@ -1475,3 +1470,4 @@ export default function SettingsRoute() {
     </Page>
   );
 }
+
