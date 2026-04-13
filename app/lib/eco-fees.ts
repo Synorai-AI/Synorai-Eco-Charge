@@ -36,13 +36,16 @@ export const TAG_CATEGORY_MAP: Record<string, NormalizedCategory> = {
   "eco-category-av": "av",
   "eco-category-cellphones": "cellphones",
 
-  // Displays (new)
+  // Displays
   "eco-category-display-small": "display-small",
   "eco-category-display-large": "display-large",
   "eco-category-display-xlarge": "display-xlarge",
+
+  // Standalone all-in-one is deprecated for billing correctness.
+  // Official schedules bill all-in-one devices inside the display size tiers.
   "eco-category-all-in-one": "all-in-one",
 
-  // Displays (legacy aliases)
+  // Legacy display aliases kept temporarily for compatibility.
   "eco-category-monitor-small": "display-small",
   "eco-category-monitor-large": "display-large",
   "eco-category-monitor-xlarge": "display-xlarge",
@@ -59,10 +62,10 @@ export const CATEGORY_LABEL_MAP: Record<NormalizedCategory, string> = {
   peripherals: "Peripherals",
   av: "AV / Telecom",
   cellphones: "Cellphones",
-  "display-small": 'Display under 30"',
-  "display-large": 'Display 30" to 45"',
-  "display-xlarge": 'Display 46"+',
-  "all-in-one": "All-in-One",
+  "display-small": 'Display / All-in-One under 30"',
+  "display-large": 'Display / All-in-One 30" to 45"',
+  "display-xlarge": 'Display / All-in-One 46"+',
+  "all-in-one": "All-in-One (retag with display size)",
   "small-appliances": "Small Appliances",
   tools: "Tools / Lawn / Garden",
 };
@@ -79,9 +82,9 @@ export const PROVINCE_CONFIG: Record<ProvinceCode, ProvinceConfig> = {
       av: 0.55,
       cellphones: 0,
       "display-small": 1.30,
-      "display-large": 1.30,
+      "display-large": 2.75,
       "display-xlarge": 2.75,
-      "all-in-one": 1.30,
+      "all-in-one": 0,
       "small-appliances": 0.40,
       tools: 0.65,
     },
@@ -97,10 +100,10 @@ export const PROVINCE_CONFIG: Record<ProvinceCode, ProvinceConfig> = {
       peripherals: 0.35,
       av: 2.80,
       cellphones: 0.20,
-      "display-small": 3.50,
+      "display-small": 3.25,
       "display-large": 4.50,
-      "display-xlarge": 7.75,
-      "all-in-one": 3.50,
+      "display-xlarge": 8.00,
+      "all-in-one": 0,
       "small-appliances": 0,
       tools: 0,
     },
@@ -116,10 +119,10 @@ export const PROVINCE_CONFIG: Record<ProvinceCode, ProvinceConfig> = {
       peripherals: 0.20,
       av: 1.25,
       cellphones: 0,
-      "display-small": 1.80,
-      "display-large": 3.10,
-      "display-xlarge": 7.00,
-      "all-in-one": 1.80,
+      "display-small": 3.50,
+      "display-large": 6.00,
+      "display-xlarge": 8.00,
+      "all-in-one": 0,
       "small-appliances": 0,
       tools: 0,
     },
@@ -230,5 +233,5 @@ export function formatCartFeeLineTitle(
   provinceCode: ProvinceCode,
   category: NormalizedCategory,
 ): string {
-  return `♻️ ${provinceCode} Environmental Fee – ${CATEGORY_LABEL_MAP[category]}`;
+  return `♻️ ${provinceCode} Environmental Fee - ${CATEGORY_LABEL_MAP[category]}`;
 }

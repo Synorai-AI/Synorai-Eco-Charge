@@ -1266,8 +1266,7 @@ export default function SettingsRoute() {
                   </p>
                   <p>
                     Storefront pricing can still be affected by Shopify Markets or Catalog
-                    price adjustments, so review <strong>Markets → Catalogs → Canada</strong>
-                     if charged fee amounts ever look incorrect.
+                    price adjustments, so review <strong>Markets → Catalogs → Canada</strong>{" "}if charged fee amounts ever look incorrect.
                   </p>
                 </Banner>
               )}
@@ -1470,4 +1469,5 @@ export default function SettingsRoute() {
     </Page>
   );
 }
+
 
