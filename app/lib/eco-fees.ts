@@ -27,6 +27,13 @@ export type ProvinceConfig = {
   feeByCategory: Record<NormalizedCategory, number>;
 };
 
+export type PublicFeeScheduleEntry = {
+  key: string;
+  label: string;
+  fee: number;
+  note?: string;
+};
+
 export const TAG_CATEGORY_MAP: Record<string, NormalizedCategory> = {
   // Computers
   "eco-category-computers": "computers",
@@ -41,8 +48,8 @@ export const TAG_CATEGORY_MAP: Record<string, NormalizedCategory> = {
   "eco-category-display-large": "display-large",
   "eco-category-display-xlarge": "display-xlarge",
 
-  // Standalone all-in-one is deprecated for billing correctness.
-  // Official schedules bill all-in-one devices inside the display size tiers.
+  // Deprecated standalone all-in-one tag kept only for backward compatibility.
+  // Billing should use the display size tiers instead.
   "eco-category-all-in-one": "all-in-one",
 
   // Legacy display aliases kept temporarily for compatibility.
@@ -129,6 +136,96 @@ export const PROVINCE_CONFIG: Record<ProvinceCode, ProvinceConfig> = {
   },
 };
 
+export const PUBLIC_FEE_SCHEDULE_BY_PROVINCE: Record<
+  ProvinceCode,
+  PublicFeeScheduleEntry[]
+> = {
+  AB: [
+    { key: "computers", label: "Computers and Servers", fee: 0.45 },
+    { key: "laptops", label: "Portable Computers", fee: 0.30 },
+    {
+      key: "printers",
+      label: "Printers, Copiers, Scanners, and Fax Machines",
+      fee: 1.65,
+    },
+    { key: "small-appliances", label: "Small Home Appliances", fee: 0.40 },
+    { key: "av", label: "AV, Telecom, Toys, and Music", fee: 0.55 },
+    {
+      key: "tools",
+      label: "Tools, Lawn, and Garden Equipment",
+      fee: 0.65,
+    },
+    {
+      key: "display-small",
+      label: 'Visual Display and All-in-One Devices under 30"',
+      fee: 1.30,
+      note: "Includes televisions, monitors, and all-in-one devices.",
+    },
+    {
+      key: "display-large",
+      label: 'Visual Display and All-in-One Devices 30" and larger',
+      fee: 2.75,
+    },
+  ],
+
+  BC: [
+    { key: "computers", label: "Computers and Servers", fee: 0.70 },
+    { key: "laptops", label: "Portable Computers", fee: 0.45 },
+    {
+      key: "printers",
+      label: "Printers, Copiers, Scanners, and Fax Machines",
+      fee: 6.50,
+    },
+    { key: "peripherals", label: "Computer Peripherals", fee: 0.35 },
+    { key: "av", label: "AV and Telecom Equipment", fee: 2.80 },
+    { key: "cellphones", label: "Cellular Devices", fee: 0.20 },
+    {
+      key: "display-small",
+      label: 'Visual Display and All-in-One Devices 29" and smaller',
+      fee: 3.25,
+      note: "Includes televisions, monitors, and all-in-one devices.",
+    },
+    {
+      key: "display-large",
+      label: 'Visual Display and All-in-One Devices 30" to 45"',
+      fee: 4.50,
+    },
+    {
+      key: "display-xlarge",
+      label: 'Visual Display and All-in-One Devices 46" and larger',
+      fee: 8.00,
+    },
+  ],
+
+  SK: [
+    { key: "computers", label: "Computers and Servers", fee: 0.80 },
+    { key: "laptops", label: "Portable Computers", fee: 0.45 },
+    {
+      key: "printers",
+      label: "Printers, Copiers, Scanners, and Fax Machines",
+      fee: 4.50,
+    },
+    { key: "peripherals", label: "Computer Peripherals", fee: 0.20 },
+    { key: "av", label: "AV and Telecom Equipment", fee: 1.25 },
+    {
+      key: "display-small",
+      label: 'Visual Display and All-in-One Devices 29" and smaller',
+      fee: 3.50,
+      note: "Includes televisions, monitors, and all-in-one devices.",
+    },
+    {
+      key: "display-large",
+      label: 'Visual Display and All-in-One Devices 30" to 45"',
+      fee: 6.00,
+    },
+    {
+      key: "display-xlarge",
+      label: 'Visual Display and All-in-One Devices 46" and larger',
+      fee: 8.00,
+    },
+  ],
+};
+
 export function isProvinceCode(value: string): value is ProvinceCode {
   return (ALLOWED_PROVINCES as readonly string[]).includes(value);
 }
@@ -177,6 +274,12 @@ export function getCategoryFeeEntriesForProvince(provinceCode: ProvinceCode): {
       label: CATEGORY_LABEL_MAP[category],
     }),
   );
+}
+
+export function getPublicFeeScheduleEntries(
+  provinceCode: ProvinceCode,
+): PublicFeeScheduleEntry[] {
+  return PUBLIC_FEE_SCHEDULE_BY_PROVINCE[provinceCode] ?? [];
 }
 
 export function resolveHighestFeeCategoryFromTags(

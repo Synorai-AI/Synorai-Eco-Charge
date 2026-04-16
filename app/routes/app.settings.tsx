@@ -15,7 +15,11 @@ import {
 } from "@shopify/polaris";
 
 import { authenticate } from "../shopify.server";
-import { ALLOWED_PROVINCES, type ProvinceCode } from "../lib/eco-fees";
+import {
+  ALLOWED_PROVINCES,
+  getPublicFeeScheduleEntries,
+  type ProvinceCode,
+} from "../lib/eco-fees";
 import {
   createStandardFeeProduct,
   ensureStandardFeeProductVariants,
@@ -1090,7 +1094,7 @@ export default function SettingsRoute() {
     setSuccessMessage(null);
     setErrorMessage(null);
 
-    const fd = new FormData();
+  const fd = new FormData();
     fd.set("intent", "saveDevModeOverride");
     fd.set("devModeOverride", devModeOverride);
 
@@ -1103,6 +1107,13 @@ export default function SettingsRoute() {
       : loaderData.isStandardSetupComplete;
 
   const diagnostics = loaderData.standardPricingDiagnostics;
+  const publicScheduleEntries = useMemo(
+    () => getPublicFeeScheduleEntries(province),
+    [province],
+  );
+  const publicScheduleHeading =
+    PROVINCE_OPTIONS.find((option) => option.value === province)?.label ?? province;
+
   const appEmbedEditorUrl = useMemo(() => {
     return buildStandardAppEmbedEditorUrl(loaderData.shopDomain);
   }, [loaderData.shopDomain]);
@@ -1431,6 +1442,54 @@ export default function SettingsRoute() {
             </BlockStack>
           </Card>
         )}
+
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">
+              Environmental Fee Schedule Preview
+            </Text>
+
+            <Text as="p" variant="bodyMd">
+              Preview for the currently selected compliance province:{" "}
+              <strong>{publicScheduleHeading}</strong>
+            </Text>
+
+            <BlockStack gap="200">
+              {publicScheduleEntries.map((entry, index) => (
+                <div
+                  key={entry.key}
+                  style={{
+                    paddingTop: index === 0 ? 0 : 12,
+                    borderTop: index === 0 ? "none" : "1px solid #e1e3e5",
+                  }}
+                >
+                  <InlineStack align="space-between" blockAlign="start">
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodyMd">
+                        <strong>{entry.label}</strong>
+                      </Text>
+
+                      {entry.note && (
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          {entry.note}
+                        </Text>
+                      )}
+                    </BlockStack>
+
+                    <Text as="p" variant="bodyMd">
+                      <strong>${entry.fee.toFixed(2)}</strong>
+                    </Text>
+                  </InlineStack>
+                </div>
+              ))}
+            </BlockStack>
+
+            <Text as="p" variant="bodySm" tone="subdued">
+              Public fee schedule labels are province-specific for display.
+              Universal product tags remain unchanged for fee matching.
+            </Text>
+          </BlockStack>
+        </Card>
 
         <Card>
           <BlockStack gap="300">
