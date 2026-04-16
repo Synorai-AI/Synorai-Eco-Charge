@@ -1000,12 +1000,14 @@ export default function SettingsRoute() {
   const [devModeOverride, setDevModeOverride] = useState<DevModeOverride>(
     loaderData.devModeOverride,
   );
+  const [isClientReady, setIsClientReady] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const isModeActionLoading = modeFetcher.state !== "idle";
   const isSavingProvince = saveFetcher.state !== "idle";
   const isSavingOverride = overrideFetcher.state !== "idle";
+  const disableClientActions = !isClientReady;
 
   useEffect(() => {
     setProvince(initialProvince);
@@ -1013,6 +1015,10 @@ export default function SettingsRoute() {
     setSuccessMessage(null);
     setErrorMessage(null);
   }, [initialProvince, loaderData.shopDomain, loaderData.devModeOverride]);
+
+  useEffect(() => {
+    setIsClientReady(true);
+  }, []);
 
   useEffect(() => {
     if (modeFetcher.state !== "idle" || !modeFetcher.data) return;
@@ -1240,7 +1246,7 @@ export default function SettingsRoute() {
                   variant="primary"
                   onClick={handleSaveDevModeOverride}
                   loading={isSavingOverride}
-                  disabled={isSavingOverride}
+                  disabled={isSavingOverride || disableClientActions}
                 >
                   Save Override
                 </Button>
@@ -1378,7 +1384,7 @@ export default function SettingsRoute() {
                     variant="primary"
                     onClick={() => handleModeIntent("setupStandardFeeProduct")}
                     loading={isModeActionLoading}
-                    disabled={isModeActionLoading}
+                    disabled={isModeActionLoading || disableClientActions}
                   >
                     Set Up Standard Fee Product
                   </Button>
@@ -1387,7 +1393,7 @@ export default function SettingsRoute() {
                 <Button
                   onClick={() => handleModeIntent("repairStandardFeeProduct")}
                   loading={isModeActionLoading}
-                  disabled={isModeActionLoading}
+                  disabled={isModeActionLoading || disableClientActions}
                 >
                   Repair Standard Fee Setup
                 </Button>
@@ -1425,7 +1431,7 @@ export default function SettingsRoute() {
                     variant="primary"
                     onClick={() => handleModeIntent("activateTransform")}
                     loading={isModeActionLoading}
-                    disabled={isModeActionLoading}
+                    disabled={isModeActionLoading || disableClientActions}
                   >
                     Enable EcoCharge Fees
                   </Button>
@@ -1434,7 +1440,7 @@ export default function SettingsRoute() {
                 <Button
                   onClick={() => handleModeIntent("repairTransform")}
                   loading={isModeActionLoading}
-                  disabled={isModeActionLoading}
+                  disabled={isModeActionLoading || disableClientActions}
                 >
                   Repair Cart Transform
                 </Button>
@@ -1517,7 +1523,7 @@ export default function SettingsRoute() {
                 variant="primary"
                 onClick={handleSaveProvince}
                 loading={isSavingProvince}
-                disabled={isSavingProvince}
+                disabled={isSavingProvince || disableClientActions}
               >
                 Save
               </Button>
