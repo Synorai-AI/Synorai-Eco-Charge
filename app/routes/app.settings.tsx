@@ -43,6 +43,30 @@ const PROVINCE_OPTIONS = [
   { label: "Saskatchewan (SK)", value: "SK" },
 ];
 
+const CURATED_TAG_GUIDE = [
+  { label: "Computers and servers", tag: "eco-category-computers" },
+  { label: "Laptops and notebooks", tag: "eco-category-laptops" },
+  { label: "Printers, copiers, scanners, and fax", tag: "eco-category-printers" },
+  { label: "Computer peripherals", tag: "eco-category-peripherals" },
+  { label: "Audio / video and telecom equipment", tag: "eco-category-av" },
+  { label: "Cellphones", tag: "eco-category-cellphones" },
+];
+
+const DISPLAY_SIZE_TAG_GUIDE = [
+  {
+    label: 'Displays and all-in-one devices under 30"',
+    tag: "eco-category-display-small",
+  },
+  {
+    label: 'Displays and all-in-one devices 30" to 45"',
+    tag: "eco-category-display-large",
+  },
+  {
+    label: 'Displays and all-in-one devices 46" and larger',
+    tag: "eco-category-display-xlarge",
+  },
+];
+
 type StoreCapability = "development" | "plus" | "standard";
 type ActiveMode = "standard_fee_product" | "pro_cart_transform";
 type DevModeOverride = "" | "standard_fee_product" | "pro_cart_transform";
@@ -1100,7 +1124,7 @@ export default function SettingsRoute() {
     setSuccessMessage(null);
     setErrorMessage(null);
 
-  const fd = new FormData();
+    const fd = new FormData();
     fd.set("intent", "saveDevModeOverride");
     fd.set("devModeOverride", devModeOverride);
 
@@ -1490,10 +1514,66 @@ export default function SettingsRoute() {
               ))}
             </BlockStack>
 
-            <Text as="p" variant="bodySm" tone="subdued">
-              Public fee schedule labels are province-specific for display.
-              Universal product tags remain unchanged for fee matching.
-            </Text>
+            <BlockStack gap="300">
+              <Text as="p" variant="bodySm" tone="subdued">
+                Public fee schedule labels are province-specific for display. Use the
+                supported EcoCharge tags below for fee matching.
+              </Text>
+
+              <div
+                style={{
+                  paddingTop: 16,
+                  borderTop: "1px solid #e1e3e5",
+                }}
+              >
+                <BlockStack gap="300">
+                  <Text as="h3" variant="headingSm">
+                    How to tag eligible products
+                  </Text>
+
+                  <Text as="p" variant="bodyMd">
+                    Tag every eligible product that should receive an environmental fee
+                    using one supported EcoCharge tag below.
+                  </Text>
+
+                  <BlockStack gap="200">
+                    {CURATED_TAG_GUIDE.map((item) => (
+                      <InlineStack key={item.tag} align="space-between" blockAlign="start">
+                        <Text as="p" variant="bodyMd">
+                          {item.label}
+                        </Text>
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          <strong>{item.tag}</strong>
+                        </Text>
+                      </InlineStack>
+                    ))}
+                  </BlockStack>
+
+                  <BlockStack gap="200">
+                    <Text as="h3" variant="headingSm">
+                      Display size tags
+                    </Text>
+
+                    {DISPLAY_SIZE_TAG_GUIDE.map((item) => (
+                      <InlineStack key={item.tag} align="space-between" blockAlign="start">
+                        <Text as="p" variant="bodyMd">
+                          {item.label}
+                        </Text>
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          <strong>{item.tag}</strong>
+                        </Text>
+                      </InlineStack>
+                    ))}
+                  </BlockStack>
+
+                  <Banner title="Important tagging rules" tone="info">
+                    <p>Use only one display-size tag per display product.</p>
+                    <p>All-in-one products should use the display-size tags above.</p>
+                    <p>Do not use the standalone all-in-one tag for new tagging.</p>
+                  </Banner>
+                </BlockStack>
+              </div>
+            </BlockStack>
           </BlockStack>
         </Card>
 
