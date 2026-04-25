@@ -81,6 +81,14 @@ const DEV_MODE_OPTIONS = [
 const SHOPIFY_APP_CLIENT_ID = "6a8e1a956bb0c2301764cac00a74b0bf";
 const STANDARD_APP_EMBED_HANDLE = "synorai-ecocharge-standard-embed";
 
+const ALLOWLISTED_DEV_PRO_TEST_SHOPS = new Set([
+  "eco-fee-test-store.myshopify.com",
+]);
+
+function isAllowlistedDevProTestShop(shopDomain: string): boolean {
+  return ALLOWLISTED_DEV_PRO_TEST_SHOPS.has(shopDomain.trim().toLowerCase());
+}
+
 function buildStandardAppEmbedEditorUrl(shopDomain: string): string {
   const base = `https://${shopDomain}/admin/themes/current/editor`;
   const params = new URLSearchParams({
@@ -104,7 +112,7 @@ type LoaderData = {
   shopDomain: string;
   currentProvince: Province | null;
 
-    storeCapability: StoreCapability;
+  storeCapability: StoreCapability;
   isDevelopmentStore: boolean;
   isPlusStore: boolean;
   hasActivePayment: boolean;
@@ -254,19 +262,25 @@ function getModeLabel(mode: ActiveMode): string {
 function resolveActiveMode(params: {
   isDevelopmentStore: boolean;
   isPlusStore: boolean;
+  shopDomain: string;
   devModeOverride: DevModeOverride;
   hasActivePayment: boolean;
   billingPlanTier: BillingPlanTier;
 }): ActiveMode {
-  const canUseProCartTransform =
+  const canUsePaidProCartTransform =
     params.hasActivePayment &&
     params.billingPlanTier === "pro" &&
     params.isPlusStore;
 
-  if (params.isDevelopmentStore && params.hasActivePayment && params.devModeOverride) {
+  const canUseAllowlistedDevProCartTransform =
+    params.isDevelopmentStore &&
+    params.devModeOverride === "pro_cart_transform" &&
+    isAllowlistedDevProTestShop(params.shopDomain);
+
+  if (params.isDevelopmentStore && params.devModeOverride) {
     if (
       params.devModeOverride === "pro_cart_transform" &&
-      canUseProCartTransform
+      (canUsePaidProCartTransform || canUseAllowlistedDevProCartTransform)
     ) {
       return "pro_cart_transform";
     }
@@ -276,10 +290,11 @@ function resolveActiveMode(params: {
     }
   }
 
-  return canUseProCartTransform
+  return canUsePaidProCartTransform
     ? "pro_cart_transform"
     : "standard_fee_product";
 }
+
 async function getFunctionId(admin: any): Promise<string | null> {
   const query = `#graphql
     query GetFunctions {
@@ -697,6 +712,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const activeMode = resolveActiveMode({
     isDevelopmentStore: storeContext.isDevelopmentStore,
     isPlusStore: storeContext.isPlusStore,
+    shopDomain: session.shop,
     devModeOverride: storeContext.devModeOverride,
     hasActivePayment: billingState.hasActivePayment,
     billingPlanTier: billingState.billingPlanTier,
@@ -760,7 +776,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "").trim();
@@ -926,6 +942,17 @@ export async function action({ request }: ActionFunctionArgs) {
       });
     }
 
+    const isAllowlistedDevProTestStore =
+      storeContext.isDevelopmentStore &&
+      isAllowlistedDevProTestShop(session.shop);
+
+    if (rawValue === "pro_cart_transform" && !isAllowlistedDevProTestStore) {
+      return Response.json({
+        ok: false,
+        error: "Pro Cart Transform test mode is not available for this development store.",
+      });
+    }
+
     const savedOverride = await saveShopMetafield({
       admin,
       shopId,
@@ -945,6 +972,7 @@ export async function action({ request }: ActionFunctionArgs) {
     const effectiveMode = resolveActiveMode({
       isDevelopmentStore: storeContext.isDevelopmentStore,
       isPlusStore: storeContext.isPlusStore,
+      shopDomain: session.shop,
       devModeOverride: rawValue,
       hasActivePayment: billingState.hasActivePayment,
       billingPlanTier: billingState.billingPlanTier,
@@ -1148,6 +1176,14 @@ export default function SettingsRoute() {
     return buildStandardAppEmbedEditorUrl(loaderData.shopDomain);
   }, [loaderData.shopDomain]);
 
+  const isAllowlistedDevProTestStore =
+    loaderData.isDevelopmentStore &&
+    isAllowlistedDevProTestShop(loaderData.shopDomain);
+
+  const visibleDevModeOptions = isAllowlistedDevProTestStore
+    ? DEV_MODE_OPTIONS
+    : DEV_MODE_OPTIONS.filter((option) => option.value !== "pro_cart_transform");
+
   return (
     <Page title="EcoCharge Settings">
       <BlockStack gap="400">
@@ -1178,21 +1214,23 @@ export default function SettingsRoute() {
               <Text as="p" variant="bodyMd">
                 <strong>Mode:</strong> {getModeLabel(loaderData.activeMode)}
               </Text>
-            <Banner title="Storefront app embed required" tone="warning">
-              <p>
-                Standard mode also requires the EcoCharge theme app embed to be enabled
-                on the published theme.
-              </p>
-              <p>
-                After install, click the button below, then open <strong>App embeds</strong>,
-                enable <strong>EcoCharge Standard</strong>, and save the theme.
-              </p>
-              <div style={{ marginTop: 12 }}>
-                <Button variant="primary" url={appEmbedEditorUrl} target="_top">
-                  Open Theme Editor
-                </Button>
-              </div>
-            </Banner>
+              {loaderData.activeMode === "standard_fee_product" && (
+                <Banner title="Storefront app embed required" tone="warning">
+                  <p>
+                    Standard mode also requires the EcoCharge theme app embed to be enabled
+                    on the published theme.
+                  </p>
+                  <p>
+                    After install, click the button below, then open <strong>App embeds</strong>,
+                    enable <strong>EcoCharge Standard</strong>, and save the theme.
+                  </p>
+                  <div style={{ marginTop: 12 }}>
+                    <Button variant="primary" url={appEmbedEditorUrl} target="_top">
+                      Open Theme Editor
+                    </Button>
+                  </div>
+                </Banner>
+              )}
               <Text as="p" variant="bodyMd">
                 <strong>Saved effective mode:</strong>{" "}
                 {loaderData.savedEffectiveMode
@@ -1254,12 +1292,21 @@ export default function SettingsRoute() {
                 test the non-Plus fee product flow.
               </Text>
 
+              {isAllowlistedDevProTestStore && (
+                <Banner title="Allowlisted Pro dev test store" tone="success">
+                  <p>
+                    This development store is allowlisted for Pro Cart Transform testing.
+                    Force Pro Cart Transform Mode bypasses paid Pro billing only on this store.
+                  </p>
+                </Banner>
+              )}
+
               <InlineStack gap="300" align="space-between">
                 <div style={{ minWidth: 320 }}>
                   <Select
                     label="Mode override"
-                    options={DEV_MODE_OPTIONS}
-                    value={devModeOverride}
+                    options={visibleDevModeOptions}
+                    value={!isAllowlistedDevProTestStore && devModeOverride === "pro_cart_transform" ? "" : devModeOverride}
                     onChange={(value) =>
                       setDevModeOverride(value as DevModeOverride)
                     }
