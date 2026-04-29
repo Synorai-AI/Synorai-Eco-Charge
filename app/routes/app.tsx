@@ -6,15 +6,26 @@ import { AppProvider as PolarisAppProvider } from "@shopify/polaris";
 import polarisTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
 
+const ALLOWLISTED_DEV_PRO_TEST_SHOPS = new Set([
+  "eco-fee-test-store.myshopify.com",
+]);
+
+function isAllowlistedDevProTestShop(shopDomain: string): boolean {
+  return ALLOWLISTED_DEV_PRO_TEST_SHOPS.has(shopDomain.trim().toLowerCase());
+}
+
 type LoaderData = {
   apiKey: string;
+  shopDomain: string;
   hasActivePayment: boolean;
   isDevelopmentStore: boolean;
   activeSubscriptionName: string | null;
+  isAllowlistedDevProTestStore: boolean;
+  canAccessApp: boolean;
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   const response = await admin.graphql(`
     query AppGateData {
@@ -58,22 +69,38 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ? activeSubscription.name.trim()
       : null;
 
+  const shopDomain = session.shop;
+  const isAllowlistedDevProTestStore =
+    isDevelopmentStore && isAllowlistedDevProTestShop(shopDomain);
+
+  const canAccessApp = hasActivePayment || isAllowlistedDevProTestStore;
+
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
+    shopDomain,
     hasActivePayment,
     isDevelopmentStore,
     activeSubscriptionName,
+    isAllowlistedDevProTestStore,
+    canAccessApp,
   };
 };
 
 export default function App() {
-  const { apiKey, hasActivePayment, isDevelopmentStore, activeSubscriptionName } =
-    useLoaderData() as LoaderData;
+  const {
+    apiKey,
+    shopDomain,
+    hasActivePayment,
+    isDevelopmentStore,
+    activeSubscriptionName,
+    isAllowlistedDevProTestStore,
+    canAccessApp,
+  } = useLoaderData() as LoaderData;
 
   return (
     <ShopifyAppProvider apiKey={apiKey} isEmbeddedApp>
       <PolarisAppProvider i18n={polarisTranslations}>
-        {hasActivePayment ? (
+        {canAccessApp ? (
           <Outlet />
         ) : (
           <div
@@ -106,7 +133,7 @@ export default function App() {
                 subscription.
               </p>
 
-              {isDevelopmentStore && (
+              {isDevelopmentStore && !isAllowlistedDevProTestStore && (
                 <p style={{ lineHeight: 1.6 }}>
                   Development stores also require an active Synorai EcoCharge test
                   subscription before app access is allowed.
@@ -127,6 +154,10 @@ export default function App() {
               <p style={{ marginBottom: 0, lineHeight: 1.6 }}>
                 If billing was just approved, wait a few moments and refresh this
                 page.
+              </p>
+
+              <p style={{ marginTop: "1rem", marginBottom: 0, lineHeight: 1.6, color: "#6d7175" }}>
+                Shop: <strong>{shopDomain}</strong>
               </p>
             </div>
           </div>
