@@ -797,8 +797,10 @@ export async function normalizeStandardFeeProductVariants(
       const hasPriceMismatch =
         expectedPrice !== null && currentPrice !== expectedPrice;
 
+      // EHF is part of the taxable consideration (GST, and PST where it
+      // applies), so fee variants must charge tax like any other line.
       return (
-        variant.taxable !== false ||
+        variant.taxable !== true ||
         variant.inventoryItem?.tracked !== false ||
         hasPriceMismatch
       );
@@ -839,7 +841,7 @@ export async function normalizeStandardFeeProductVariants(
         return {
           id: variant.id,
           ...(requiredVariant ? { price: requiredVariant.price } : {}),
-          taxable: false,
+          taxable: true,
           inventoryItem: {
             tracked: false,
           },
@@ -927,7 +929,7 @@ export async function ensureStandardFeeProductVariants(
             optionName: "Title",
           },
         ],
-        taxable: false,
+        taxable: true,
       })),
     };
 
