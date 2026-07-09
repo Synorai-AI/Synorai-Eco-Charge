@@ -1,5 +1,16 @@
 # Synorai EcoCharge
 
+## 2026.07.09
+
+- **Six new provinces**: Manitoba, New Brunswick, Newfoundland and Labrador,
+  Nova Scotia, Prince Edward Island, and Quebec — all verified against each
+  program's official June 2026 EPRA Product Definitions (sources in
+  `docs/fee-schedule.md`). EcoCharge now covers all nine provinces with a
+  regulated electronics EHF program. Scope notes: Ontario has no regulated
+  EHF (ended 2021); appliance categories outside AB and the territories are
+  not yet modeled.
+- Fee variants now charge tax (EHF is part of the taxable consideration).
+
 ## 2026.07.08
 
 - **Fee schedule corrected and verified** against official program documents:

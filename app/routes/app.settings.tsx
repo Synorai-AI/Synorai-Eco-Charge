@@ -40,6 +40,12 @@ type Province = ProvinceCode;
 const PROVINCE_OPTIONS = [
   { label: "Alberta (AB)", value: "AB" },
   { label: "British Columbia (BC)", value: "BC" },
+  { label: "Manitoba (MB)", value: "MB" },
+  { label: "New Brunswick (NB)", value: "NB" },
+  { label: "Newfoundland and Labrador (NL)", value: "NL" },
+  { label: "Nova Scotia (NS)", value: "NS" },
+  { label: "Prince Edward Island (PE)", value: "PE" },
+  { label: "Quebec (QC)", value: "QC" },
   { label: "Saskatchewan (SK)", value: "SK" },
 ];
 

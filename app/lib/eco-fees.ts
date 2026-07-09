@@ -1,4 +1,14 @@
-export const ALLOWED_PROVINCES = ["AB", "BC", "SK"] as const;
+export const ALLOWED_PROVINCES = [
+  "AB",
+  "BC",
+  "MB",
+  "NB",
+  "NL",
+  "NS",
+  "PE",
+  "QC",
+  "SK",
+] as const;
 
 export type ProvinceCode = typeof ALLOWED_PROVINCES[number];
 
@@ -89,16 +99,21 @@ export const CATEGORY_LABEL_MAP: Record<NormalizedCategory, string> = {
  * transform, and the merchant-facing schedule preview are all derived from it.
  * Do not hardcode fee amounts anywhere else (see docs/fee-schedule.md).
  *
- * Verified against official program schedules on 2026-07-08:
+ * Verified against official program schedules on 2026-07-08 (AB/BC/SK) and
+ * 2026-07-09 (MB/NB/NL/NS/PE/QC) — see docs/fee-schedule.md for source URLs:
  * - AB: ARMA fee schedule Apr 1, 2025 – Sep 30, 2026 (albertarecycling.ca).
  *   Two display tiers only (<30" / 30"+), so xlarge/xxlarge mirror 30"+.
- * - BC: EPRA-BC Technical Product Listing, updated June 2026
- *   (recyclemyelectronics.ca/bc). Four display tiers.
- * - SK: EPRA-SK Product Definitions, revised June 1, 2026
- *   (recyclemyelectronics.ca/sk). Four display tiers; no cellular category.
+ * - BC: EPRA-BC Technical Product Listing, updated June 2026.
+ * - MB/NB/NL/NS/PE/QC/SK: EPRA Product Definitions, revised June 2026
+ *   (recyclemyelectronics.ca per province). SK has no cellular category.
  *
  * Display tiers: display-small ≤29", display-large 30"–45",
- * display-xlarge 46"–64", display-xxlarge 65"+.
+ * display-xlarge 46"–64", display-xxlarge 65"+ (all EPRA provinces).
+ *
+ * Scope note: NB/NL/NS/PE added Phase 3 appliance categories in Jan 2026
+ * (personal care, kitchen countertop, etc.). Our single small-appliances
+ * category cannot represent those granular schedules, so appliance fees
+ * remain 0 outside AB for now — electronics categories only.
  */
 export const PROVINCE_CONFIG: Record<ProvinceCode, ProvinceConfig> = {
   AB: {
@@ -141,6 +156,126 @@ export const PROVINCE_CONFIG: Record<ProvinceCode, ProvinceConfig> = {
     },
   },
 
+  MB: {
+    enabled: true,
+    label: "MB Environmental Fee",
+    feeByCategory: {
+      computers: 0.80,
+      laptops: 0.45,
+      printers: 4.50,
+      peripherals: 0.20,
+      av: 1.25,
+      cellphones: 0.10,
+      "display-small": 1.80,
+      "display-large": 3.10,
+      "display-xlarge": 7.00,
+      "display-xxlarge": 8.85,
+      "all-in-one": 0,
+      "small-appliances": 0,
+      tools: 0,
+    },
+  },
+
+  NB: {
+    enabled: true,
+    label: "NB Environmental Fee",
+    feeByCategory: {
+      computers: 1.20,
+      laptops: 0.65,
+      printers: 6.75,
+      peripherals: 0.50,
+      av: 3.75,
+      cellphones: 0.20,
+      "display-small": 5.00,
+      "display-large": 7.05,
+      "display-xlarge": 14.25,
+      "display-xxlarge": 17.95,
+      "all-in-one": 0,
+      "small-appliances": 0,
+      tools: 0,
+    },
+  },
+
+  NL: {
+    enabled: true,
+    label: "NL Environmental Fee",
+    feeByCategory: {
+      computers: 1.20,
+      laptops: 0.60,
+      printers: 6.50,
+      peripherals: 0.45,
+      av: 3.75,
+      cellphones: 0.25,
+      "display-small": 5.95,
+      "display-large": 9.05,
+      "display-xlarge": 17.10,
+      "display-xxlarge": 21.55,
+      "all-in-one": 0,
+      "small-appliances": 0,
+      tools: 0,
+    },
+  },
+
+  NS: {
+    enabled: true,
+    label: "NS Environmental Fee",
+    feeByCategory: {
+      computers: 0.80,
+      laptops: 0.40,
+      printers: 5.25,
+      peripherals: 0.25,
+      av: 2.25,
+      cellphones: 0.11,
+      "display-small": 3.00,
+      "display-large": 5.50,
+      "display-xlarge": 10.50,
+      "display-xxlarge": 13.25,
+      "all-in-one": 0,
+      "small-appliances": 0,
+      tools: 0,
+    },
+  },
+
+  PE: {
+    enabled: true,
+    label: "PE Environmental Fee",
+    feeByCategory: {
+      computers: 0.80,
+      laptops: 0.40,
+      printers: 5.25,
+      peripherals: 0.25,
+      av: 2.25,
+      cellphones: 0.11,
+      "display-small": 3.00,
+      "display-large": 5.50,
+      "display-xlarge": 10.50,
+      "display-xxlarge": 13.25,
+      "all-in-one": 0,
+      "small-appliances": 0,
+      tools: 0,
+    },
+  },
+
+  QC: {
+    enabled: true,
+    label: "QC Environmental Fee",
+    feeByCategory: {
+      computers: 1.00,
+      laptops: 0.60,
+      printers: 7.25,
+      peripherals: 0.55,
+      av: 3.75,
+      cellphones: 0.20,
+      "display-small": 5.50,
+      "display-large": 8.50,
+      "display-xlarge": 16.75,
+      "display-xxlarge": 21.10,
+      "all-in-one": 0,
+      "small-appliances": 0,
+      tools: 0,
+    },
+  },
+
   SK: {
     enabled: true,
     label: "SK Environmental Fee",
@@ -168,7 +303,45 @@ type PublicScheduleRow = {
   note?: string;
 };
 
+// Shared row set for the EPRA provinces that all use the same electronics
+// category structure (fees still come from each province's PROVINCE_CONFIG).
+const EPRA_STANDARD_ROWS: PublicScheduleRow[] = [
+  { key: "computers", label: "Computers and Servers" },
+  { key: "laptops", label: "Portable Computers" },
+  {
+    key: "printers",
+    label: "Printers, Copiers, Scanners, and Fax Machines",
+  },
+  { key: "peripherals", label: "Computer Peripherals" },
+  { key: "av", label: "AV and Telecom Equipment" },
+  { key: "cellphones", label: "Cellular Devices" },
+  {
+    key: "display-small",
+    label: 'Visual Display and All-in-One Devices 29" and smaller',
+    note: "Includes televisions, monitors, and all-in-one devices.",
+  },
+  {
+    key: "display-large",
+    label: 'Visual Display and All-in-One Devices 30" to 45"',
+  },
+  {
+    key: "display-xlarge",
+    label: 'Visual Display and All-in-One Devices 46" to 64"',
+  },
+  {
+    key: "display-xxlarge",
+    label: 'Visual Display and All-in-One Devices 65" and larger',
+  },
+];
+
 const PUBLIC_FEE_SCHEDULE_ROWS: Record<ProvinceCode, PublicScheduleRow[]> = {
+  MB: EPRA_STANDARD_ROWS,
+  NB: EPRA_STANDARD_ROWS,
+  NL: EPRA_STANDARD_ROWS,
+  NS: EPRA_STANDARD_ROWS,
+  PE: EPRA_STANDARD_ROWS,
+  QC: EPRA_STANDARD_ROWS,
+
   AB: [
     { key: "computers", label: "Computers and Servers" },
     { key: "laptops", label: "Portable Computers" },
