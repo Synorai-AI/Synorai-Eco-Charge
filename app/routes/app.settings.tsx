@@ -1,6 +1,17 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useEffect, useMemo, useState } from "react";
-import { useFetcher, useLoaderData } from "react-router";
+import { useFetcher, useLoaderData, useRouteError } from "react-router";
+import { boundary } from "@shopify/shopify-app-react-router/server";
+
+// Session-token bounce responses thrown by authenticate.admin must reach the
+// client via these boundaries; without them React Router's default error
+// screen renders the thrown 200 as a blank "200" page instead of silently
+// re-authenticating.
+export const headers = boundary.headers;
+
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
+}
 
 import {
   Page,

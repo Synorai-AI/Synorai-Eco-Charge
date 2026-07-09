@@ -1,6 +1,13 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useEffect, useState } from "react";
-import { useFetcher, useLoaderData } from "react-router";
+import { useFetcher, useLoaderData, useRouteError } from "react-router";
+import { boundary } from "@shopify/shopify-app-react-router/server";
+
+export const headers = boundary.headers;
+
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
+}
 
 import {
   Page,
