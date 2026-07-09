@@ -85,11 +85,10 @@ June). **Check each program page quarterly.**
 
 ## Known open issues (flagged, intentionally not changed here)
 
-- **Fee variants are created with `taxable: false`.** EHF is generally part of
-  the taxable consideration (GST, and PST in BC) — CRA treats the fee as part
-  of the product's price. Charging it non-taxable likely under-collects tax.
-  Decide and fix deliberately: flipping `taxable` changes checkout totals for
-  live stores.
+- ~~Fee variants are created with `taxable: false`.~~ **Resolved 2026-07-09**:
+  fee variants are now created and normalized with `taxable: true` (EHF is part
+  of the taxable consideration — GST, and PST where applicable). Existing
+  stores pick this up on their next Settings save.
 - **Merchant retagging needed for the new 65"+ tier.** Products previously
   tagged `eco-category-display-xlarge` that are 65"+ should be retagged
   `eco-category-display-xxlarge`, otherwise BC/SK charge the 46"–64" fee.
