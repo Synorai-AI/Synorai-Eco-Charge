@@ -1,0 +1,15 @@
+api_version = "2025-01"
+
+[[extensions]]
+name = "EcoCharge POS"
+handle = "synorai-ecocharge-pos"
+type = "ui_extension"
+description = "One-tap provincial eco fee application for POS carts"
+
+  [[extensions.targeting]]
+  module = "./src/Tile.tsx"
+  target = "pos.home.tile.render"
+
+  [[extensions.targeting]]
+  module = "./src/Modal.tsx"
+  target = "pos.home.modal.render"
