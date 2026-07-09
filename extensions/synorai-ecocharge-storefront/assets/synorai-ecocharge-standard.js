@@ -60,10 +60,6 @@
       return { ok: false, error: "No usable Standard fee variant map found." };
     }
 
-    if (!config.feeByProvince || typeof config.feeByProvince !== "object") {
-      return { ok: false, error: "No feeByProvince config found." };
-    }
-
     if (!config.tagCategoryMap || typeof config.tagCategoryMap !== "object") {
       return { ok: false, error: "No tagCategoryMap config found." };
     }
@@ -267,7 +263,10 @@ function resolveLineTags(item) {
     return false;
   }
 
-  function highestCategoryFromTags(tags, feeByCategory, tagCategoryMap) {
+  // Fee amounts come from the variant map's prices (written by the app
+  // backend from the canonical schedule), so the storefront never needs its
+  // own copy of the fee table. Categories without a variant charge no fee.
+  function highestCategoryFromTags(tags, provinceMap, tagCategoryMap) {
     var bestCategory = null;
     var bestFee = 0;
 
@@ -275,8 +274,11 @@ function resolveLineTags(item) {
       var category = tagCategoryMap[tags[i]];
       if (!category) continue;
 
-      var fee = feeByCategory[category];
-      if (typeof fee !== "number") continue;
+      var entry = provinceMap[category];
+      if (!entry || !entry.variantId) continue;
+
+      var fee = parseFloat(entry.price);
+      if (!Number.isFinite(fee)) continue;
 
       if (fee > bestFee) {
         bestFee = fee;
@@ -289,10 +291,13 @@ function resolveLineTags(item) {
       : null;
   }
 
-function buildRequiredState(items, province, feeProductId, variantMap, feeByCategory, tagCategoryMap) {
+function buildRequiredState(items, province, feeProductId, variantMap, tagCategoryMap) {
   var grouped = {};
+  var provinceMap = variantMap[province];
 
   function applyResolvedTags(item, tags) {
+    if (!provinceMap) return;
+
     if (isFeeLine(item, feeProductId, variantMap)) {
       return;
     }
@@ -300,11 +305,8 @@ function buildRequiredState(items, province, feeProductId, variantMap, feeByCate
     var quantity = typeof item.quantity === "number" ? item.quantity : 0;
     if (quantity <= 0) return;
 
-    var resolved = highestCategoryFromTags(tags, feeByCategory, tagCategoryMap);
+    var resolved = highestCategoryFromTags(tags, provinceMap, tagCategoryMap);
     if (!resolved) return;
-
-    var provinceMap = variantMap[province];
-    if (!provinceMap) return;
 
     var entry = provinceMap[resolved.category];
     if (!entry) return;
@@ -513,10 +515,9 @@ function refreshCartDrawerUi() {
 
     var config = loaded.config;
     var province = String(config.province || "").trim();
-    var feeByCategory = config.feeByProvince[province];
 
-    if (!feeByCategory) {
-      log("Standard sync skipped: no fee table for province", province);
+    if (!config.variantMap[province]) {
+      log("Standard sync skipped: no fee variants for province", province);
       return Promise.resolve();
     }
 
@@ -534,7 +535,6 @@ function refreshCartDrawerUi() {
           province,
           config.feeProductId,
           config.variantMap,
-          feeByCategory,
           config.tagCategoryMap,
         ).then(function (required) {
           var existing = buildExistingState(

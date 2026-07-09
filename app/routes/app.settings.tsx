@@ -62,8 +62,12 @@ const DISPLAY_SIZE_TAG_GUIDE = [
     tag: "eco-category-display-large",
   },
   {
-    label: 'Displays and all-in-one devices 46" and larger',
+    label: 'Displays and all-in-one devices 46" to 64"',
     tag: "eco-category-display-xlarge",
+  },
+  {
+    label: 'Displays and all-in-one devices 65" and larger',
+    tag: "eco-category-display-xxlarge",
   },
 ];
 

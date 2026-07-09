@@ -1,3 +1,25 @@
+# Synorai EcoCharge
+
+## 2026.07.08
+
+- **Fee schedule corrected and verified** against official program documents:
+  ARMA (AB, Apr 2025–Sep 2026), EPRA-BC Technical Product Listing (June 2026),
+  EPRA-SK Product Definitions (revised June 1, 2026). BC fees rose
+  substantially in June 2026 (e.g. displays ≤29" $3.50 → $4.95, printers
+  $6.50 → $6.95, desktops $0.70 → $0.85). See `docs/fee-schedule.md`.
+- **New display tier**: `display-xxlarge` / `eco-category-display-xxlarge` for
+  65"+ displays (BC $13.85, SK $8.85). Merchants should retag 65"+ products
+  currently tagged `eco-category-display-xlarge`.
+- **Single source of truth for fees**: removed the hardcoded (and stale) fee
+  table from the storefront theme embed; the storefront now resolves fees from
+  the variant map metafield written by the backend. The merchant-facing
+  schedule preview is derived from `PROVINCE_CONFIG`. Drift-guard tests added
+  in `extensions/eco-fee-cart-transform/tests/fee-schedule-consistency.test.js`.
+- **New POS extension (scaffold)**: `extensions/synorai-ecocharge-pos` smart
+  grid tile + modal that applies eco fees to POS carts via a new authenticated
+  backend endpoint (`/api/pos/fee-plan`). Needs dev-store verification before
+  deploy — see that extension's README.
+
 # @shopify/shopify-app-template-react-router
 
 ## 2025.12.11
