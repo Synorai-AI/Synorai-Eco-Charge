@@ -41,24 +41,37 @@ else derives from it:
 live variant titles; `parseVariantTitle` matches titles exactly, so a renamed
 label orphans installed variants. Add a new category instead.
 
-## Verified schedule (2026-07-08)
+## Verified schedule (AB/BC/SK 2026-07-08; MB/NB/NL/NS/PE/QC 2026-07-09)
 
 Display tiers: small ≤29", large 30"–45", xlarge 46"–64", xxlarge 65"+.
 
-| Category | AB | BC | SK |
-|---|---|---|---|
-| computers | 0.45 | 0.85 | 0.80 |
-| laptops | 0.30 | 0.50 | 0.45 |
-| printers | 1.65 | 6.95 | 4.50 |
-| peripherals | — | 0.55 | 0.20 |
-| av | 0.55 | 3.50 | 1.25 |
-| cellphones | — | 0.20 | — |
-| display-small | 1.30 | 4.95 | 1.80 |
-| display-large | 2.75 | 6.80 | 3.10 |
-| display-xlarge | 2.75 | 11.00 | 7.00 |
-| display-xxlarge | 2.75 | 13.85 | 8.85 |
-| small-appliances | 0.40 | — | — |
-| tools | 0.65 | — | — |
+| Category | AB | BC | MB | NB | NL | NS | PE | QC | SK |
+|---|---|---|---|---|---|---|---|---|---|
+| computers | 0.45 | 0.85 | 0.80 | 1.20 | 1.20 | 0.80 | 0.80 | 1.00 | 0.80 |
+| laptops | 0.30 | 0.50 | 0.45 | 0.65 | 0.60 | 0.40 | 0.40 | 0.60 | 0.45 |
+| printers | 1.65 | 6.95 | 4.50 | 6.75 | 6.50 | 5.25 | 5.25 | 7.25 | 4.50 |
+| peripherals | — | 0.55 | 0.20 | 0.50 | 0.45 | 0.25 | 0.25 | 0.55 | 0.20 |
+| av | 0.55 | 3.50 | 1.25 | 3.75 | 3.75 | 2.25 | 2.25 | 3.75 | 1.25 |
+| cellphones | — | 0.20 | 0.10 | 0.20 | 0.25 | 0.11 | 0.11 | 0.20 | — |
+| display-small | 1.30 | 4.95 | 1.80 | 5.00 | 5.95 | 3.00 | 3.00 | 5.50 | 1.80 |
+| display-large | 2.75 | 6.80 | 3.10 | 7.05 | 9.05 | 5.50 | 5.50 | 8.50 | 3.10 |
+| display-xlarge | 2.75 | 11.00 | 7.00 | 14.25 | 17.10 | 10.50 | 10.50 | 16.75 | 7.00 |
+| display-xxlarge | 2.75 | 13.85 | 8.85 | 17.95 | 21.55 | 13.25 | 13.25 | 21.10 | 8.85 |
+| small-appliances | 0.40 | — | — | — | — | — | — | — | — |
+| tools | 0.65 | — | — | — | — | — | — | — | — |
+
+**Not covered (documented scope limits):**
+
+- **Ontario** — the regulated EHF program ended in 2021 (individual producer
+  responsibility). Ontario retailers may charge a self-set recovery fee;
+  supporting that means a merchant-configurable schedule, not program data.
+- **Appliance categories outside AB** — NB/NL/NS/PE added Phase 3 appliance
+  categories (personal care, kitchen countertop, etc.) in Jan 2026 with
+  granular per-type fees our single `small-appliances` category can't
+  represent. Electronics only for now.
+- **Territories** — YT and NWT run small programs; not yet modeled.
+- **Quebec localization** — cart fee line titles are English
+  ("QC Environmental Fee"); French labels are a follow-up for QC storefronts.
 
 ### Sources
 
@@ -79,6 +92,16 @@ Display tiers: small ≤29", large 30"–45", xlarge 46"–64", xxlarge 65"+.
   (linked from https://recyclemyelectronics.ca/sk/product-definitions-and-ehf).
   SK has no cellular category. SK display tiers: 1.80 / 3.10 / 7.00 (46"–64") /
   8.85 (≥65").
+- **MB / NB / NL / NS / PE / QC (EPRA)** — Product Definitions, all *revised
+  June 2026*, each linked from
+  `recyclemyelectronics.ca/<province>/product-definitions-and-ehf`
+  (PEI uses `/pei`); PDF asset URLs as of 2026-07-09:
+  - MB: https://www.recyclemy-assets.com/1780319839-epra-mb-obligated-products-definitions-june-2026.pdf
+  - NB: https://www.recyclemy-assets.com/1780319339-epra-nb-obligated-products-definitions-en-june-2026.pdf
+  - NL: https://www.recyclemy-assets.com/1780319839-epra-nl-obligated-products-definitions-june-2026.pdf
+  - NS: https://www.recyclemy-assets.com/1780319839-epra-ns-obligated-products-definitions-june-2026.pdf
+  - PE: https://www.recyclemy-assets.com/1780319839-epra-pei-obligated-products-definitions-june-2026.pdf
+  - QC: https://www.recyclemy-assets.com/1780319339-epra-qc-obligated-products-definitions-en-june-2026.pdf
 
 EPRA revises these listings periodically (recent changes have landed in May /
 June). **Check each program page quarterly.**
