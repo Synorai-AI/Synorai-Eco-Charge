@@ -5,13 +5,13 @@ Open this file from your PC via the network share and copy field by field.
 
 ---
 
-## App introduction (limit 100 — this is 95)
+## App introduction (limit 100 — this is 93)
 
-Automatic EHF eco fees for electronics — all 9 provinces, in cart, checkout, and Shopify POS.
+Automatic EHF eco fees for electronics — all 9 provinces, in cart, at checkout, and on POS.
 
 ## App description (long field)
 
-**EcoCharge automatically charges the correct environmental handling fee (EHF) on every eligible electronics sale — online, at checkout, and on Shopify POS.**
+**EcoCharge automatically charges the correct environmental handling fee (EHF) on every eligible electronics sale — online, at checkout, and on POS.**
 
 Canadian electronics retailers must charge provincial EHF eco fees, and every province's schedule is different. EcoCharge covers all nine provinces with a regulated program — AB, BC, MB, NB, NL, NS, PE, QC, SK — with rates verified against the official ARMA and EPRA schedules and updated when programs change, so you don't have to track fee bulletins.
 
@@ -27,7 +27,7 @@ Canadian electronics retailers must charge provincial environmental handling fee
 
 1. Covers all 9 EHF provinces — rates verified against official program schedules   (80)
 2. Fees auto-apply in cart, follow quantity changes, and re-apply before checkout   (78)
-3. One-tap eco fees on Shopify POS — perfect for in-store electronics sales   (74)
+3. One-tap eco fees on POS — perfect for in-store electronics sales   (66)
 4. Per-province tagging guide shows exactly which products owe which fee   (69)
 5. Preview any province fee schedule and tax handling before you go live   (69)
 
@@ -45,7 +45,7 @@ Canadian electronics retailers must charge provincial environmental handling fee
 2. Cart Transform checkout fees   (28)
 3. No fee line items in cart   (25)
 4. Fees built into line prices   (27)
-5. Built for Shopify Plus   (22)
+5. Requires a Plus plan   (22)
 
 ## App discovery
 
@@ -62,11 +62,11 @@ Automatic EHF eco fees for electronics — all 9 provinces
 Replaces "cart fee automation" and "electronics comply" — merchants search the
 name of the fee, not a description of the software.
 
-**Web search title tag (limit 60 — this is 56):**
-Canadian EHF Eco Fee App for Shopify | Synorai EcoCharge
+**Web search title tag (limit 60 — this is 44):**
+Canadian EHF Eco Fee App — Synorai EcoCharge
 
-**Meta description (limit 160 — this is 157):**
-Charge the correct EHF eco fee on electronics in all 9 Canadian provinces — automatically in cart, at checkout, and on Shopify POS. Verified program rates.
+**Meta description (limit 160 — this is 149):**
+Charge the correct EHF eco fee on electronics in all 9 Canadian provinces — automatically in cart, at checkout, and on POS. Verified program rates.
 
 ---
 
