@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- Source for hero-1600x900.png (app store gallery image #1).
+     Render: browse viewport 1600x900 → goto this file → screenshot --selector .hero -->
+<html><head><meta charset="utf-8"><style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1600px; height:900px; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .hero {
+    width:1600px; height:900px; padding:90px 110px;
+    background:linear-gradient(135deg,#0b3d2e 0%,#14532d 55%,#166534 100%);
+    color:#fff; display:flex; flex-direction:column; justify-content:space-between;
+    position:relative; overflow:hidden;
+  }
+  .leaf { position:absolute; right:-140px; top:-160px; font-size:560px; opacity:0.07; transform:rotate(18deg); }
+  .brand { display:flex; align-items:center; gap:18px; }
+  .brand .logo { width:56px; height:56px; border-radius:14px; background:#22c55e; display:flex; align-items:center; justify-content:center; font-size:32px; }
+  .brand .name { font-size:30px; font-weight:700; letter-spacing:0.5px; }
+  h1 { font-size:74px; line-height:1.12; font-weight:800; max-width:1150px; letter-spacing:-1px; }
+  h1 .accent { color:#4ade80; }
+  .sub { font-size:32px; color:#bbf7d0; margin-top:26px; font-weight:500; }
+  .provinces { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; }
+  .chip {
+    background:rgba(255,255,255,0.10); border:2px solid rgba(74,222,128,0.55);
+    border-radius:14px; padding:16px 26px; font-size:30px; font-weight:700; letter-spacing:1px;
+  }
+  .bottomrow { display:flex; align-items:center; justify-content:space-between; }
+  .badge {
+    display:inline-flex; align-items:center; gap:14px; white-space:nowrap;
+    background:#4ade80; color:#0b3d2e; font-weight:800; font-size:25px;
+    padding:16px 30px; border-radius:999px;
+  }
+  .surfaces { font-size:25px; color:#dcfce7; font-weight:600; white-space:nowrap; }
+</style></head><body>
+<div class="hero">
+  <div class="leaf">♻️</div>
+  <div class="brand"><div class="logo">♻️</div><div class="name">Synorai EcoCharge</div></div>
+  <div>
+    <h1>The <span class="accent">EHF compliance app</span> for Canadian electronics retailers</h1>
+    <div class="sub">Correct eco fees, charged automatically — every province, every sale.</div>
+  </div>
+  <div class="provinces">
+    <div class="chip">AB</div><div class="chip">BC</div><div class="chip">MB</div>
+    <div class="chip">NB</div><div class="chip">NL</div><div class="chip">NS</div>
+    <div class="chip">PE</div><div class="chip">QC</div><div class="chip">SK</div>
+  </div>
+  <div class="bottomrow">
+    <div class="badge">✓ Verified against official ARMA &amp; EPRA schedules</div>
+    <div class="surfaces">Cart&nbsp;&nbsp;·&nbsp;&nbsp;Checkout&nbsp;&nbsp;·&nbsp;&nbsp;POS</div>
+  </div>
+</div>
+</body></html>
