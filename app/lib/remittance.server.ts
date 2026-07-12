@@ -249,9 +249,9 @@ export async function buildRemittanceReport(
       expectedCents: rows.reduce((s, r) => s + r.expectedCents, 0),
     },
     mismatches: records
-      .filter((r) => r.mismatch)
+      .filter((r: (typeof records)[number]) => r.mismatch)
       .slice(0, 50)
-      .map((r) => ({
+      .map((r: (typeof records)[number]) => ({
         orderName: r.orderName,
         processedAt: r.processedAt.toISOString(),
         destination: r.destinationProvince ?? r.destinationCountry ?? "unknown",
