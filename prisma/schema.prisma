@@ -7,6 +7,28 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// One row per paid order: destination province vs. EHF actually charged.
+// Powers the remittance report. Deliberately stores NO customer PII —
+// only the destination province/country and fee math.
+model EhfOrderRecord {
+  id                  String   @id // `${shop}:${orderId}`
+  shop                String
+  orderId             String
+  orderName           String?
+  processedAt         DateTime
+  destinationCountry  String?
+  destinationProvince String?
+  chargedCents        Int      @default(0)
+  expectedCents       Int?
+  chargedLinesJson    String   @default("[]")
+  expectedLinesJson   String   @default("[]")
+  mismatch            Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([shop, processedAt])
+}
+
 model Session {
   id                  String    @id
   shop                String

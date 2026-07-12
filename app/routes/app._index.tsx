@@ -83,20 +83,37 @@ export default function AppIndex() {
           <h3 style={{ marginTop: 0, marginBottom: 12 }}>Store info</h3>
 
           {/* ✅ This is the ONLY correct way for your stack */}
-          <Link 
-	    to={`settings${location.search}`}
-            style={{
-              display: "inline-block",
-              padding: "8px 12px",
-              background: "#111",
-              color: "#fff",
-              borderRadius: 8,
-              textDecoration: "none",
-              fontSize: 14,
-            }}
-          >
-            Open Settings
-          </Link>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link
+              to={`reports${location.search}`}
+              style={{
+                display: "inline-block",
+                padding: "8px 12px",
+                background: "#fff",
+                color: "#111",
+                border: "1px solid #111",
+                borderRadius: 8,
+                textDecoration: "none",
+                fontSize: 14,
+              }}
+            >
+              Remittance Report
+            </Link>
+            <Link
+              to={`settings${location.search}`}
+              style={{
+                display: "inline-block",
+                padding: "8px 12px",
+                background: "#111",
+                color: "#fff",
+                borderRadius: 8,
+                textDecoration: "none",
+                fontSize: 14,
+              }}
+            >
+              Open Settings
+            </Link>
+          </div>
         </div>
 
         <div><strong>Shop:</strong> {data.shopName ?? "(unknown)"}</div>

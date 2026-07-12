@@ -1,5 +1,13 @@
 # Synorai EcoCharge
 
+## 2026.07.11
+
+- **EHF remittance reports**: every paid order is recorded with its shipping
+  destination (province only — no customer PII stored) and compared against
+  the destination province's schedule. New Reports page shows per-province
+  EHF charged vs. owed with CSV export and a mismatch audit trail. Requires
+  the new `read_orders` scope; merchants approve it on next app open.
+
 ## 2026.07.09
 
 - **Six new provinces**: Manitoba, New Brunswick, Newfoundland and Labrador,
