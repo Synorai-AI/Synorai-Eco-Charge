@@ -13,5 +13,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     await db.session.deleteMany({ where: { shop } });
   }
 
+  // Remittance records hold no PII, but they're this shop's business data —
+  // remove them with the install.
+  await db.ehfOrderRecord.deleteMany({ where: { shop } });
+
   return new Response();
 };
