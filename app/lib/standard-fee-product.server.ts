@@ -919,34 +919,47 @@ export async function ensureStandardFeeProductVariants(
       }
     `;
 
-    const variables = {
-      productId,
-      variants: missingVariants.map((variant) => ({
-        price: variant.price,
-        optionValues: [
-          {
-            name: variant.title,
-            optionName: "Title",
-          },
-        ],
-        taxable: true,
-      })),
-    };
+    // Create in small batches so a mid-run failure reports real progress
+    // ("created 25 of 60") instead of silently leaving a partial product.
+    const BATCH_SIZE = 25;
+    let createdCount = 0;
 
-    const res = await admin.graphql(mutation, { variables });
-    const json = await res.json();
+    for (let i = 0; i < missingVariants.length; i += BATCH_SIZE) {
+      const batch = missingVariants.slice(i, i + BATCH_SIZE);
 
-    const userErrors = json?.data?.productVariantsBulkCreate?.userErrors ?? [];
-    if (userErrors.length > 0) {
-      return {
-        ok: false,
-        error: userErrors.map((e: any) => e.message).join(", "),
+      const variables = {
+        productId,
+        variants: batch.map((variant) => ({
+          price: variant.price,
+          optionValues: [
+            {
+              name: variant.title,
+              optionName: "Title",
+            },
+          ],
+          taxable: true,
+        })),
       };
+
+      const res = await admin.graphql(mutation, { variables });
+      const json = await res.json();
+
+      const userErrors = json?.data?.productVariantsBulkCreate?.userErrors ?? [];
+      if (userErrors.length > 0) {
+        return {
+          ok: false,
+          error: `Created ${createdCount} of ${missingVariants.length} missing variants, then failed: ${userErrors
+            .map((e: any) => e.message)
+            .join(", ")}. Run Repair again to continue.`,
+        };
+      }
+
+      createdCount += batch.length;
     }
 
     return {
       ok: true,
-      createdCount: missingVariants.length,
+      createdCount,
       totalRequired: requiredVariants.length,
     };
   } catch (error) {
@@ -957,6 +970,83 @@ export async function ensureStandardFeeProductVariants(
         "Ensuring standard fee variants failed.",
         error,
       ),
+    };
+  }
+}
+
+export type StandardFeeOrphanSweepResult =
+  | { ok: true; deletedCount: number; deletedTitles: string[] }
+  | { ok: false; error: string };
+
+/**
+ * Delete variants on the fee product whose titles don't parse as a current
+ * fee variant (legacy label formats from earlier app versions). They carry
+ * stale prices and are never referenced by the variant map, but a very old
+ * saved cart could still buy one — sweeping them removes that hazard.
+ */
+export async function sweepOrphanFeeVariants(
+  admin: AdminGraphqlClient,
+  productId: string,
+): Promise<StandardFeeOrphanSweepResult> {
+  try {
+    const existingVariants = await getExistingProductVariants(admin, productId);
+
+    const orphans = existingVariants.filter((variant) => {
+      const title = variant.title?.trim() ?? "";
+      return title.length > 0 && !parseVariantTitle(title);
+    });
+
+    if (orphans.length === 0) {
+      return { ok: true, deletedCount: 0, deletedTitles: [] };
+    }
+
+    // Never delete everything — if all variants look like orphans, the title
+    // scheme itself changed and deletion would destroy the product. Bail out.
+    if (orphans.length === existingVariants.length) {
+      return {
+        ok: false,
+        error:
+          "Orphan sweep aborted: every variant looked unrecognized, which suggests a title-format change rather than stale variants.",
+      };
+    }
+
+    const mutation = `#graphql
+      mutation DeleteOrphanFeeVariants($productId: ID!, $variantsIds: [ID!]!) {
+        productVariantsBulkDelete(productId: $productId, variantsIds: $variantsIds) {
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const res = await admin.graphql(mutation, {
+      variables: {
+        productId,
+        variantsIds: orphans.map((variant) => variant.id),
+      },
+    });
+    const json = await res.json();
+
+    const userErrors = json?.data?.productVariantsBulkDelete?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      return {
+        ok: false,
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
+    }
+
+    return {
+      ok: true,
+      deletedCount: orphans.length,
+      deletedTitles: orphans.map((variant) => variant.title ?? ""),
+    };
+  } catch (error) {
+    logStandardFeeError("sweepOrphanFeeVariants failed", error);
+    return {
+      ok: false,
+      error: getReadableErrorMessage("Orphan fee variant sweep failed.", error),
     };
   }
 }

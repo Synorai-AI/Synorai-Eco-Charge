@@ -39,6 +39,7 @@ import {
   normalizeStandardFeeProductVariants,
   saveStandardFeeProductId,
   saveStandardFeeVariantMap,
+  sweepOrphanFeeVariants,
 } from "../lib/standard-fee-product.server";
 
 const METAFIELD_NAMESPACE = "synorai_ecocharge";
@@ -796,6 +797,69 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return Response.json(data);
 }
 
+type StandardFeePipelineResult =
+  | { ok: true; feeProductId: string; sweptCount: number }
+  | { ok: false; error: string };
+
+/**
+ * The complete Standard fee product sync: create if missing, create any
+ * missing variants (batched), sweep orphaned legacy variants, normalize
+ * prices/tax, and rewrite the variant map metafield. Idempotent — used by
+ * setup, repair, and every province save.
+ */
+async function runStandardFeeSetupPipeline(
+  admin: Parameters<typeof createStandardFeeProduct>[0],
+  shopId: string,
+): Promise<StandardFeePipelineResult> {
+  const result = await createStandardFeeProduct(admin);
+  if (!result.ok) {
+    return { ok: false, error: result.error };
+  }
+
+  const ensured = await ensureStandardFeeProductVariants(admin, result.productId);
+  if (!ensured.ok) {
+    return { ok: false, error: ensured.error };
+  }
+
+  const swept = await sweepOrphanFeeVariants(admin, result.productId);
+  if (!swept.ok) {
+    return { ok: false, error: swept.error };
+  }
+
+  const normalized = await normalizeStandardFeeProductVariants(
+    admin,
+    result.productId,
+  );
+  if (!normalized.ok) {
+    return { ok: false, error: normalized.error };
+  }
+
+  const variantMapResult = await getStandardFeeVariantMap(admin, result.productId);
+  if (!variantMapResult.ok) {
+    return { ok: false, error: variantMapResult.error };
+  }
+
+  const savedProductId = await saveStandardFeeProductId(
+    admin,
+    shopId,
+    result.productId,
+  );
+  if (!savedProductId.ok) {
+    return { ok: false, error: savedProductId.error };
+  }
+
+  const savedVariantMap = await saveStandardFeeVariantMap(
+    admin,
+    shopId,
+    variantMapResult.variantMap,
+  );
+  if (!savedVariantMap.ok) {
+    return { ok: false, error: savedVariantMap.error };
+  }
+
+  return { ok: true, feeProductId: result.productId, sweptCount: swept.deletedCount };
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
 
@@ -862,73 +926,15 @@ export async function action({ request }: ActionFunctionArgs) {
       });
     }
 
-    const result = await createStandardFeeProduct(admin);
-
-    if (!result.ok) {
-      return Response.json({
-        ok: false,
-        error: result.error,
-      });
-    }
-
-    const ensured = await ensureStandardFeeProductVariants(admin, result.productId);
-    if (!ensured.ok) {
-      return Response.json({
-        ok: false,
-        error: ensured.error,
-      });
-    }
-
-    const normalized = await normalizeStandardFeeProductVariants(
-      admin,
-      result.productId,
-    );
-    if (!normalized.ok) {
-      return Response.json({
-        ok: false,
-        error: normalized.error,
-      });
-    }
-
-    const variantMapResult = await getStandardFeeVariantMap(
-      admin,
-      result.productId,
-    );
-    if (!variantMapResult.ok) {
-      return Response.json({
-        ok: false,
-        error: variantMapResult.error,
-      });
-    }
-
-    const savedProductId = await saveStandardFeeProductId(
-      admin,
-      shopId,
-      result.productId,
-    );
-    if (!savedProductId.ok) {
-      return Response.json({
-        ok: false,
-        error: savedProductId.error,
-      });
-    }
-
-    const savedVariantMap = await saveStandardFeeVariantMap(
-      admin,
-      shopId,
-      variantMapResult.variantMap,
-    );
-    if (!savedVariantMap.ok) {
-      return Response.json({
-        ok: false,
-        error: savedVariantMap.error,
-      });
+    const pipeline = await runStandardFeeSetupPipeline(admin, shopId);
+    if (!pipeline.ok) {
+      return Response.json({ ok: false, error: pipeline.error });
     }
 
     return Response.json({
       ok: true,
       kind: "standard_setup",
-      feeProductId: result.productId,
+      feeProductId: pipeline.feeProductId,
       repaired: intent === "repairStandardFeeProduct",
     });
   }
@@ -1049,6 +1055,16 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({
         ok: false,
         error: saved.error,
+      });
+    }
+
+    // Run the full fee product sync so saving a province is always enough —
+    // no separate Repair click required for new variants or price updates.
+    const pipeline = await runStandardFeeSetupPipeline(admin, shopId);
+    if (!pipeline.ok) {
+      return Response.json({
+        ok: false,
+        error: `Province saved, but syncing the fee product failed: ${pipeline.error}`,
       });
     }
 
