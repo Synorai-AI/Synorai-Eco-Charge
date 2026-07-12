@@ -1,0 +1,87 @@
+{% comment %}
+  Ship-to province selector (Layer 2 of destination-based fees).
+  Merchants add this app block to their cart page via the theme editor.
+  Changing the selection writes the cart attribute
+  `synorai_destination_province`; the EcoCharge Standard embed's cart sync
+  picks it up (its fetch hook fires on /cart/update.js) and swaps the fee
+  variants to the selected province's rates.
+{% endcomment %}
+
+{% liquid
+  assign effective_mode = shop.metafields.synorai_ecocharge.effective_mode.value
+  assign selected = cart.attributes.synorai_destination_province | default: ''
+  assign codes = "AB,BC,MB,NB,NL,NS,PE,QC,SK" | split: ","
+  assign names = "Alberta,British Columbia,Manitoba,New Brunswick,Newfoundland and Labrador,Nova Scotia,Prince Edward Island,Quebec,Saskatchewan" | split: ","
+%}
+
+{% if effective_mode == 'standard_fee_product' %}
+<div class="synorai-province-selector" {{ block.shopify_attributes }}
+     style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0;">
+  <label for="synorai-dest-province" style="font-size:14px;">
+    {{ block.settings.label }}
+  </label>
+  <select id="synorai-dest-province"
+          style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;font-size:14px;">
+    <option value="">{{ block.settings.default_label }}</option>
+    {% for code in codes %}
+      {% assign idx = forloop.index0 %}
+      <option value="{{ code }}" {% if selected == code %}selected{% endif %}>
+        {{ names[idx] }} ({{ code }})
+      </option>
+    {% endfor %}
+  </select>
+  <span id="synorai-dest-province-note" style="font-size:12px;color:#6b7280;display:none;">
+    Updating fees…
+  </span>
+</div>
+
+<script>
+  (function () {
+    var select = document.getElementById("synorai-dest-province");
+    var note = document.getElementById("synorai-dest-province-note");
+    if (!select) return;
+
+    select.addEventListener("change", function () {
+      if (note) note.style.display = "inline";
+
+      // The EcoCharge embed wraps window.fetch, so this update triggers the
+      // fee re-sync automatically — no coordination needed here.
+      fetch("/cart/update.js", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          attributes: { synorai_destination_province: select.value },
+        }),
+      }).catch(function (error) {
+        console.error("[Synorai EcoCharge] Failed to save destination province.", error);
+        if (note) note.style.display = "none";
+      });
+    });
+  })();
+</script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "EcoCharge Ship-To Province",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "label",
+      "label": "Selector label",
+      "default": "Shipping to (province):"
+    },
+    {
+      "type": "text",
+      "id": "default_label",
+      "label": "Default option text",
+      "default": "Store province (default)"
+    }
+  ]
+}
+{% endschema %}
