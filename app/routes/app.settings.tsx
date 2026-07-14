@@ -1206,6 +1206,20 @@ export default function SettingsRoute() {
                   </div>
                 </Banner>
               )}
+              <Banner title="Ship out of province? (optional)" tone="info">
+                <p>
+                  By default, fees use your compliance province. If you ship to
+                  other provinces, add the <strong>Ship-To Province</strong>{" "}
+                  block to your <strong>cart page</strong> in the Theme Editor —
+                  customers pick their destination and the correct
+                  province&apos;s fees apply before checkout.
+                </p>
+                <p>
+                  Skipping this is fine: the Remittance Report always reconciles
+                  what was charged against what each destination province is
+                  owed.
+                </p>
+              </Banner>
               <Text as="p" variant="bodyMd">
                 <strong>Saved effective mode:</strong>{" "}
                 {loaderData.savedEffectiveMode

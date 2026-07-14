@@ -1,5 +1,8 @@
 query CartTransformRunInput {
   cart {
+    destinationProvince: attribute(key: "synorai_destination_province") {
+      value
+    }
     lines {
       id
       quantity
@@ -26,6 +29,7 @@ query CartTransformRunInput {
                 "eco-category-display-small"
                 "eco-category-display-large"
                 "eco-category-display-xlarge"
+                "eco-category-display-xxlarge"
                 "eco-category-all-in-one"
                 "eco-category-monitor-small"
                 "eco-category-monitor-large"

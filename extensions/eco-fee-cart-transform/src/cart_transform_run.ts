@@ -41,7 +41,16 @@ export function cartTransformRun(
     return NO_CHANGES;
   }
 
-  const provinceCode = normalizeProvinceCode(input?.shop?.jurisdiction?.value);
+  // Destination override: the Ship-To Province cart block writes this
+  // attribute; when present and valid it wins over the store's home
+  // province, matching Standard-tier behavior.
+  const destinationProvince = normalizeProvinceCode(
+    (input?.cart as { destinationProvince?: { value?: string | null } | null })
+      ?.destinationProvince?.value,
+  );
+  const provinceCode =
+    destinationProvince ??
+    normalizeProvinceCode(input?.shop?.jurisdiction?.value);
   const provinceConfig = getProvinceConfig(provinceCode);
 
   if (!provinceConfig || !provinceConfig.enabled) {
