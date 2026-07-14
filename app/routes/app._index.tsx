@@ -1,8 +1,23 @@
-import type { LoaderFunctionArgs, HeadersFunction } from "react-router";
-import { useLoaderData, useRouteError, Link, useLocation } from "react-router";
+import type {
+  LoaderFunctionArgs,
+  ActionFunctionArgs,
+  HeadersFunction,
+} from "react-router";
+import {
+  useFetcher,
+  useLoaderData,
+  useLocation,
+  useRouteError,
+  Link,
+} from "react-router";
 
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { isProvinceCode } from "../lib/eco-fees";
+import { runStandardFeeSetupPipeline } from "../lib/standard-fee-product.server";
+
+const METAFIELD_NAMESPACE = "synorai_ecocharge";
+const JURISDICTION_KEY = "jurisdiction";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin } = await authenticate.admin(request);
@@ -38,8 +53,99 @@ export async function loader({ request }: LoaderFunctionArgs) {
     countryCode,
     provinceCode,
     jurisdiction,
+    detectedSupported:
+      countryCode === "CA" &&
+      typeof provinceCode === "string" &&
+      isProvinceCode(provinceCode),
     now: new Date().toISOString(),
   };
+}
+
+/**
+ * One-click setup: use the store's own billing address province (what the
+ * merchant registered with Shopify — not geo-IP guessing), save it as the
+ * compliance province, and run the full fee product pipeline.
+ */
+export async function action({ request }: ActionFunctionArgs) {
+  const { admin } = await authenticate.admin(request);
+
+  const formData = await request.formData();
+  if (String(formData.get("intent")) !== "quickSetup") {
+    return Response.json({ ok: false, error: "Unknown action." });
+  }
+
+  const contextRes = await admin.graphql(`
+    query QuickSetupContext {
+      shop {
+        id
+        billingAddress {
+          countryCodeV2
+          provinceCode
+        }
+      }
+    }
+  `);
+  const contextJson = await contextRes.json();
+  const shopId: string | null = contextJson?.data?.shop?.id ?? null;
+  const billing = contextJson?.data?.shop?.billingAddress;
+  const provinceCode: string | null = billing?.provinceCode ?? null;
+
+  if (!shopId) {
+    return Response.json({ ok: false, error: "Unable to resolve the shop ID." });
+  }
+
+  if (
+    billing?.countryCodeV2 !== "CA" ||
+    !provinceCode ||
+    !isProvinceCode(provinceCode)
+  ) {
+    return Response.json({
+      ok: false,
+      error:
+        "Your store's billing address isn't in a supported province — pick a province manually in Settings.",
+    });
+  }
+
+  const metafieldRes = await admin.graphql(
+    `#graphql
+      mutation QuickSetupSaveProvince($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          userErrors { field message }
+        }
+      }
+    `,
+    {
+      variables: {
+        metafields: [
+          {
+            ownerId: shopId,
+            namespace: METAFIELD_NAMESPACE,
+            key: JURISDICTION_KEY,
+            type: "single_line_text_field",
+            value: provinceCode,
+          },
+        ],
+      },
+    },
+  );
+  const metafieldJson = await metafieldRes.json();
+  const metafieldErrors = metafieldJson?.data?.metafieldsSet?.userErrors ?? [];
+  if (metafieldErrors.length > 0) {
+    return Response.json({
+      ok: false,
+      error: metafieldErrors.map((e: any) => e.message).join(", "),
+    });
+  }
+
+  const pipeline = await runStandardFeeSetupPipeline(admin, shopId);
+  if (!pipeline.ok) {
+    return Response.json({
+      ok: false,
+      error: `Province saved, but fee product setup failed: ${pipeline.error}`,
+    });
+  }
+
+  return Response.json({ ok: true, province: provinceCode });
 }
 
 // REQUIRED: boundary headers for embedded redirects/reauth
@@ -49,8 +155,11 @@ export function ErrorBoundary() {
   return boundary.error(useRouteError());
 }
 
+type QuickSetupData = { ok: true; province: string } | { ok: false; error: string };
+
 export default function AppIndex() {
   const location = useLocation();
+  const quickSetup = useFetcher<QuickSetupData>();
 
   const data = useLoaderData() as {
     ok: boolean;
@@ -59,15 +168,89 @@ export default function AppIndex() {
     countryCode: string | null;
     provinceCode: string | null;
     jurisdiction: string | null;
+    detectedSupported: boolean;
     now: string;
   };
 
-  const complianceConfigured = Boolean(data.jurisdiction);
+  const quickSetupDone = quickSetup.data?.ok === true;
+  const jurisdiction = quickSetupDone
+    ? (quickSetup.data as { province: string }).province
+    : data.jurisdiction;
+  const complianceConfigured = Boolean(jurisdiction);
+  const isSettingUp = quickSetup.state !== "idle";
 
   return (
     <div style={{ padding: 24, fontFamily: "system-ui, sans-serif" }}>
       <h2 style={{ marginTop: 0 }}>Synorai EcoCharge</h2>
       <p>Eco-fee compliance configuration</p>
+
+      {!complianceConfigured && data.detectedSupported && (
+        <div
+          style={{
+            marginTop: 16,
+            padding: 16,
+            border: "1px solid #6ee7b7",
+            background: "#ecfdf5",
+            borderRadius: 8,
+            maxWidth: 760,
+          }}
+        >
+          <h3 style={{ marginTop: 0, marginBottom: 8 }}>
+            Set up in one click
+          </h3>
+          <p style={{ marginTop: 0 }}>
+            Your store&apos;s registered address is in{" "}
+            <strong>{data.provinceCode}</strong>. One click saves that as your
+            compliance province and creates the fee product with your
+            province&apos;s current rates.
+          </p>
+          <button
+            onClick={() => {
+              const fd = new FormData();
+              fd.set("intent", "quickSetup");
+              quickSetup.submit(fd, { method: "post" });
+            }}
+            disabled={isSettingUp}
+            style={{
+              padding: "10px 16px",
+              background: isSettingUp ? "#6b7280" : "#047857",
+              color: "#fff",
+              borderRadius: 8,
+              border: "none",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: isSettingUp ? "wait" : "pointer",
+            }}
+          >
+            {isSettingUp
+              ? "Setting up…"
+              : `Set up for ${data.provinceCode} now`}
+          </button>
+          {quickSetup.data && quickSetup.data.ok === false && (
+            <p style={{ color: "#b42318", marginBottom: 0 }}>
+              {(quickSetup.data as { error: string }).error}
+            </p>
+          )}
+        </div>
+      )}
+
+      {quickSetupDone && (
+        <div
+          style={{
+            marginTop: 16,
+            padding: 16,
+            border: "1px solid #6ee7b7",
+            background: "#ecfdf5",
+            borderRadius: 8,
+            maxWidth: 760,
+          }}
+        >
+          <strong>Setup complete for {jurisdiction}.</strong> Last step: enable
+          the <em>EcoCharge Standard</em> app embed in your theme —{" "}
+          <Link to={`settings${location.search}`}>open Settings</Link> for the
+          Theme Editor button, then tag your products using the guide there.
+        </div>
+      )}
 
       <div
         style={{
@@ -82,7 +265,6 @@ export default function AppIndex() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ marginTop: 0, marginBottom: 12 }}>Store info</h3>
 
-          {/* ✅ This is the ONLY correct way for your stack */}
           <div style={{ display: "flex", gap: 8 }}>
             <Link
               to={`reports${location.search}`}
@@ -122,7 +304,7 @@ export default function AppIndex() {
         <div><strong>Billing Province:</strong> {data.provinceCode ?? "(unknown)"}</div>
         <div>
           <strong>Compliance Province (Metafield):</strong>{" "}
-          {data.jurisdiction ?? "(not set)"}
+          {jurisdiction ?? "(not set)"}
         </div>
 
         <div style={{ marginTop: 12 }}>
