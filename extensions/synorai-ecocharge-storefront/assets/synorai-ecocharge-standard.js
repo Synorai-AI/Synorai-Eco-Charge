@@ -514,12 +514,6 @@ function refreshCartDrawerUi() {
     }
 
     var config = loaded.config;
-    var province = String(config.province || "").trim();
-
-    if (!config.variantMap[province]) {
-      log("Standard sync skipped: no fee variants for province", province);
-      return Promise.resolve();
-    }
 
     syncInFlight = true;
     beginInternalMutation();
@@ -529,6 +523,25 @@ function refreshCartDrawerUi() {
     return getCart()
       .then(function (cart) {
         var items = Array.isArray(cart.items) ? cart.items : [];
+
+        // Destination override: a cart attribute set by the ship-to province
+        // selector block wins over the store's home province, so customers
+        // shipping to another province are charged that province's fees.
+        var attrProvince =
+          cart.attributes &&
+          typeof cart.attributes.synorai_destination_province === "string"
+            ? cart.attributes.synorai_destination_province.trim().toUpperCase()
+            : "";
+
+        var province =
+          attrProvince && config.variantMap[attrProvince]
+            ? attrProvince
+            : String(config.province || "").trim();
+
+        if (!config.variantMap[province]) {
+          log("Standard sync skipped: no fee variants for province", province);
+          return;
+        }
 
         return buildRequiredState(
           items,
