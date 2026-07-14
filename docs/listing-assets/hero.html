@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Source for hero-1600x900.png (app store gallery image #1).
+     Render: browse viewport 1600x900 → goto this file → screenshot --selector .hero -->
+<html><head><meta charset="utf-8"><style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1600px; height:900px; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .hero {
+    width:1600px; height:900px; padding:90px 110px;
+    background:linear-gradient(135deg,#0b3d2e 0%,#14532d 55%,#166534 100%);
+    color:#fff; display:flex; flex-direction:column; justify-content:space-between;
+    position:relative; overflow:hidden;
+  }
+  .leaf { position:absolute; right:-140px; top:-160px; font-size:560px; opacity:0.07; transform:rotate(18deg); }
+  .brand { display:flex; align-items:center; gap:18px; }
+  .brand .logo { width:64px; height:64px; border-radius:14px; background:#fff; display:flex; align-items:center; justify-content:center; padding:7px; }
+  .brand .logo svg { width:100%; height:100%; }
+  .brand .name { font-size:30px; font-weight:700; letter-spacing:0.5px; }
+  h1 { font-size:74px; line-height:1.12; font-weight:800; max-width:1150px; letter-spacing:-1px; }
+  h1 .accent { color:#4ade80; }
+  .sub { font-size:32px; color:#bbf7d0; margin-top:26px; font-weight:500; }
+  .provinces { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; }
+  .chip {
+    background:rgba(255,255,255,0.10); border:2px solid rgba(74,222,128,0.55);
+    border-radius:14px; padding:16px 26px; font-size:30px; font-weight:700; letter-spacing:1px;
+  }
+  .bottomrow { display:flex; align-items:center; justify-content:space-between; }
+  .badge {
+    display:inline-flex; align-items:center; gap:14px; white-space:nowrap;
+    background:#4ade80; color:#0b3d2e; font-weight:800; font-size:25px;
+    padding:16px 30px; border-radius:999px;
+  }
+  .surfaces { font-size:25px; color:#dcfce7; font-weight:600; white-space:nowrap; }
+</style></head><body>
+<div class="hero">
+  <div class="leaf">♻️</div>
+  <div class="brand"><div class="logo"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  
+  <path fill="#57c040" d="M7.74,4.52c0-.15.12-.26.28-.26s.28.12.28.26v.46c.31.02.66.09.98.22.19.07.44.2.44.5,0,.27-.21.49-.5.49-.16,0-.29-.08-.49-.15-.18-.06-.4-.15-.7-.15-.53,0-.77.16-.77.45,0,.19.17.34.42.45.59.25,1.2.29,1.69.66.33.24.52.56.52,1.05,0,.86-.66,1.41-1.59,1.53v.45c0,.15-.12.26-.28.26s-.28-.12-.28-.26v-.43c-.41-.02-.84-.12-1.18-.27-.29-.12-.45-.28-.45-.52,0-.28.23-.49.51-.49.18,0,.29.09.51.21.18.09.42.19.81.19.63,0,.79-.31.79-.56,0-.24-.17-.39-.43-.49-.41-.18-.97-.27-1.43-.53-.4-.22-.73-.56-.73-1.22,0-.72.57-1.25,1.61-1.34v-.47Z"/>
+  <g>
+    <path fill="#57c040" d="M4.27,14.19c.23.25.51.49.74.66.09,0,1.27,0,1.36,0-.81-.64-.3-.23-.97-.76-.45-.35-.43-1,0-1.34.7-.56.27-.2.97-.75-.95,0-2.55.2-3.21-1.25-.14,1.05.19,2.41,1.11,3.44Z"/>
+    <path fill="#57c040" d="M3.23,8.71c.47-.79.26-.42.82-1.39l.77.43c.23.12.47-.06.43-.29,0-.01-.57-3.62-.57-3.62-.03-.19-.23-.29-.39-.22,0,0-2.51.96-3.49,1.33-.24.09-.25.4-.04.51l.76.43c-.37.62-.19.32-.83,1.39-.93,1.56-.93,3.5,0,5.06.72,1.21,1.91,2.06,3.27,2.38-1.6-1.63-1.86-4.12-.73-6.01Z"/>
+    <path fill="#57c040" d="M9.95,3.95c.79,1.32.16.26.83,1.39l-.77.43c-.21.12-.2.42.04.51.26.1,3.23,1.23,3.49,1.33.17.07.37-.04.39-.22.37-2.54.22-1.43.57-3.62.04-.23-.2-.41-.43-.29l-.76.43c-.37-.62-.19-.31-.82-1.39C11.57.96,9.85,0,8,0,6.58,0,5.22.58,4.25,1.57c2.17-.51,4.48.36,5.7,2.38Z"/>
+    <path fill="#57c040" d="M3.6,2.38c-.07.11-.61,1.02-.68,1.14.53-.2.8-.3,1.15-.44.51-.2,1.1.12,1.19.67.06.38.02.14.19,1.2l.6-1.01c.5-.85,1.54-1.19,2.12-1.08-1.23-.9-2.87-1.16-4.57-.49Z"/>
+    <path fill="#57c040" d="M15.61,8.87c-.77,1.85-2.67,3.13-4.79,3.13-1.96,0-1.19,0-1.65,0,0-.51,0,.33,0-.86,0-.25-.29-.37-.47-.23-.62.48-1.66,1.27-2.93,2.29-.15.12-.15.33,0,.45.38.3,2.05,1.61,2.93,2.29.2.15.47,0,.47-.22v-.86h1.65c1.84,0,3.56-.97,4.49-2.53.72-1.21.88-2.65.48-3.95-.05.17-.11.33-.18.49Z"/>
+    <path fill="#57c040" d="M13.55,10.55c.71-.51,1.3-1.26,1.62-2.18.1-.29.18-.65.21-.94-.1-.18-.57-.96-.68-1.15-.05.34-.13.84-.19,1.21-.08.52-.63.88-1.19.67-.36-.14-.09-.04-1.15-.44.49.84,1.45,2.08.49,3.34.26-.1.57-.27.89-.5Z"/>
+  </g>
+</svg></div><div class="name">Synorai EcoCharge</div></div>
+  <div>
+    <h1>The <span class="accent">EHF compliance app</span> for Canadian electronics retailers</h1>
+    <div class="sub">Correct eco fees, charged automatically — every province, every sale.</div>
+  </div>
+  <div class="provinces">
+    <div class="chip">AB</div><div class="chip">BC</div><div class="chip">MB</div>
+    <div class="chip">NB</div><div class="chip">NL</div><div class="chip">NS</div>
+    <div class="chip">PE</div><div class="chip">QC</div><div class="chip">SK</div>
+  </div>
+  <div class="bottomrow">
+    <div class="badge">✓ Verified against official ARMA &amp; EPRA schedules</div>
+    <div class="surfaces">Cart&nbsp;&nbsp;·&nbsp;&nbsp;Checkout&nbsp;&nbsp;·&nbsp;&nbsp;POS</div>
+  </div>
+</div>
+</body></html>
