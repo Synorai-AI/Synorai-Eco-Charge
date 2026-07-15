@@ -55,15 +55,16 @@
        {% endif %}
        margin: 14px 0;
      ">
-  <label for="synorai-dest-province"
-         style="display:block;font-weight:600;font-size:14px;margin-bottom:6px;">
-    {{ block.settings.label }}
-  </label>
-  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+              justify-content:{{ block.settings.alignment | default: 'center' }};">
+    <label for="synorai-dest-province"
+           style="font-weight:600;font-size:14px;margin:0;">
+      {{ block.settings.label }}
+    </label>
     <select id="synorai-dest-province"
             style="padding:8px 12px;border-radius:8px;font-size:14px;min-width:230px;
                    border:1px solid color-mix(in srgb, var(--synorai-accent) 45%, transparent);
-                   background:transparent;color:inherit;">
+                   background:#ffffff;color:#111111;">
       <option value="">
         {%- if store_province_name != blank -%}
           {{ store_province_name }} ({{ store_province }}) — store default
@@ -85,7 +86,8 @@
     </span>
   </div>
   {% if block.settings.help_text != blank %}
-    <p style="font-size:12px;opacity:0.75;margin:8px 0 0;">
+    <p style="font-size:12px;opacity:0.75;margin:8px 0 0;
+              text-align:{{ block.settings.alignment | default: 'center' }};">
       {{ block.settings.help_text }}
     </p>
   {% endif %}
@@ -135,8 +137,17 @@
     {
       "type": "text",
       "id": "help_text",
-      "label": "Help text (optional)",
-      "default": "Environmental fees are set by your delivery province."
+      "label": "Help text (optional)"
+    },
+    {
+      "type": "select",
+      "id": "alignment",
+      "label": "Alignment",
+      "options": [
+        { "value": "center", "label": "Center" },
+        { "value": "flex-start", "label": "Left" }
+      ],
+      "default": "center"
     },
     {
       "type": "checkbox",
