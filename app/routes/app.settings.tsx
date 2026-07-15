@@ -1231,6 +1231,10 @@ export default function SettingsRoute() {
                   province&apos;s fees apply before checkout.
                 </p>
                 <p>
+                  Once added, drag the block anywhere on your cart page in the
+                  Theme Editor — its position is fully yours.
+                </p>
+                <p>
                   Skipping this is fine: the Remittance Report always reconciles
                   what was charged against what each destination province is
                   owed.
