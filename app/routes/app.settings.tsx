@@ -121,6 +121,22 @@ function buildStandardAppEmbedEditorUrl(shopDomain: string): string {
   return `${base}?${params.toString()}`;
 }
 
+// Theme app extension UID from extensions/synorai-ecocharge-storefront —
+// used by the add-app-block deep link so merchants never hunt for the block.
+const STOREFRONT_EXTENSION_UID = "90bcffe1-7217-2c07-07bb-a5a4e5de8298149d1b9f";
+const PROVINCE_SELECTOR_BLOCK_HANDLE = "synorai-ecocharge-province-selector";
+
+function buildProvinceSelectorDeepLink(shopDomain: string): string {
+  const base = `https://${shopDomain}/admin/themes/current/editor`;
+  const params = new URLSearchParams({
+    template: "cart",
+    addAppBlockId: `${STOREFRONT_EXTENSION_UID}/${PROVINCE_SELECTOR_BLOCK_HANDLE}`,
+    target: "newAppsSection",
+  });
+
+  return `${base}?${params.toString()}`;
+}
+
 type StandardPricingDiagnostics = {
   status: "not_available" | "ok" | "warning" | "error";
   productHandle: string | null;
@@ -1215,10 +1231,22 @@ export default function SettingsRoute() {
                   province&apos;s fees apply before checkout.
                 </p>
                 <p>
+                  Once added, drag the block anywhere on your cart page in the
+                  Theme Editor — its position is fully yours.
+                </p>
+                <p>
                   Skipping this is fine: the Remittance Report always reconciles
                   what was charged against what each destination province is
                   owed.
                 </p>
+                <div style={{ marginTop: 12 }}>
+                  <Button
+                    url={buildProvinceSelectorDeepLink(loaderData.shopDomain)}
+                    target="_top"
+                  >
+                    Add selector to cart page
+                  </Button>
+                </div>
               </Banner>
               <Text as="p" variant="bodyMd">
                 <strong>Saved effective mode:</strong>{" "}
