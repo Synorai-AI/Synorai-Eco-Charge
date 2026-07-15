@@ -121,16 +121,16 @@ function buildStandardAppEmbedEditorUrl(shopDomain: string): string {
   return `${base}?${params.toString()}`;
 }
 
-// Theme app extension UID from extensions/synorai-ecocharge-storefront —
-// used by the add-app-block deep link so merchants never hunt for the block.
-const STOREFRONT_EXTENSION_UID = "90bcffe1-7217-2c07-07bb-a5a4e5de8298149d1b9f";
+// Add-app-block deep links accept the app's client ID in place of the
+// theme extension UUID (the local build uid from the extension TOML is NOT
+// valid here — using it makes the editor toast "problem with the app block").
 const PROVINCE_SELECTOR_BLOCK_HANDLE = "synorai-ecocharge-province-selector";
 
 function buildProvinceSelectorDeepLink(shopDomain: string): string {
   const base = `https://${shopDomain}/admin/themes/current/editor`;
   const params = new URLSearchParams({
     template: "cart",
-    addAppBlockId: `${STOREFRONT_EXTENSION_UID}/${PROVINCE_SELECTOR_BLOCK_HANDLE}`,
+    addAppBlockId: `${SHOPIFY_APP_CLIENT_ID}/${PROVINCE_SELECTOR_BLOCK_HANDLE}`,
     target: "newAppsSection",
   });
 
