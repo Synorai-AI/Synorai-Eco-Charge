@@ -1,38 +1,82 @@
 {% comment %}
   Ship-to province selector (Layer 2 of destination-based fees).
-  Merchants add this app block to their cart page via the theme editor.
-  Changing the selection writes the cart attribute
+  Merchants add this app block to their cart page (one-click deep link in
+  app Settings). Changing the selection writes the cart attribute
   `synorai_destination_province`; the EcoCharge Standard embed's cart sync
-  picks it up (its fetch hook fires on /cart/update.js) and swaps the fee
-  variants to the selected province's rates.
+  picks it up and swaps fee variants to the selected province's rates.
+
+  Visibility design: the default option names the assumed province
+  ("Alberta — store default") so out-of-province customers notice the wrong
+  assumption. The container uses currentColor mixing so it harmonizes with
+  any theme; merchants can override with an accent color.
 {% endcomment %}
 
 {% liquid
   assign effective_mode = shop.metafields.synorai_ecocharge.effective_mode.value
+  assign store_province = shop.metafields.synorai_ecocharge.jurisdiction.value | default: ''
   assign selected = cart.attributes.synorai_destination_province | default: ''
   assign codes = "AB,BC,MB,NB,NL,NS,PE,QC,SK" | split: ","
   assign names = "Alberta,British Columbia,Manitoba,New Brunswick,Newfoundland and Labrador,Nova Scotia,Prince Edward Island,Quebec,Saskatchewan" | split: ","
+
+  assign store_province_name = ''
+  for code in codes
+    if code == store_province
+      assign idx = forloop.index0
+      assign store_province_name = names[idx]
+    endif
+  endfor
 %}
 
 {% if effective_mode == 'standard_fee_product' %}
 <div class="synorai-province-selector" {{ block.shopify_attributes }}
-     style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0;">
-  <label for="synorai-dest-province" style="font-size:14px;">
+     style="
+       {% if block.settings.match_theme %}
+       --synorai-accent: currentColor;
+       {% else %}
+       --synorai-accent: {{ block.settings.accent_color }};
+       {% endif %}
+       {% if block.settings.boxed %}
+       border: 1.5px solid color-mix(in srgb, var(--synorai-accent) 40%, transparent);
+       background: color-mix(in srgb, var(--synorai-accent) 6%, transparent);
+       border-radius: 10px;
+       padding: 14px 16px;
+       {% endif %}
+       margin: 14px 0;
+     ">
+  <label for="synorai-dest-province"
+         style="display:block;font-weight:600;font-size:14px;margin-bottom:6px;">
     {{ block.settings.label }}
   </label>
-  <select id="synorai-dest-province"
-          style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;font-size:14px;">
-    <option value="">{{ block.settings.default_label }}</option>
-    {% for code in codes %}
-      {% assign idx = forloop.index0 %}
-      <option value="{{ code }}" {% if selected == code %}selected{% endif %}>
-        {{ names[idx] }} ({{ code }})
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <select id="synorai-dest-province"
+            style="padding:8px 12px;border-radius:8px;font-size:14px;min-width:230px;
+                   border:1px solid color-mix(in srgb, var(--synorai-accent) 45%, transparent);
+                   background:transparent;color:inherit;">
+      <option value="">
+        {%- if store_province_name != blank -%}
+          {{ store_province_name }} ({{ store_province }}) — store default
+        {%- else -%}
+          Store province (default)
+        {%- endif -%}
       </option>
-    {% endfor %}
-  </select>
-  <span id="synorai-dest-province-note" style="font-size:12px;color:#6b7280;display:none;">
-    Updating fees…
-  </span>
+      {% for code in codes %}
+        {% assign idx = forloop.index0 %}
+        {% unless code == store_province %}
+        <option value="{{ code }}" {% if selected == code %}selected{% endif %}>
+          {{ names[idx] }} ({{ code }})
+        </option>
+        {% endunless %}
+      {% endfor %}
+    </select>
+    <span id="synorai-dest-province-note" style="font-size:12px;opacity:0.7;display:none;">
+      Updating fees…
+    </span>
+  </div>
+  {% if block.settings.help_text != blank %}
+    <p style="font-size:12px;opacity:0.75;margin:8px 0 0;">
+      {{ block.settings.help_text }}
+    </p>
+  {% endif %}
 </div>
 
 <script>
@@ -73,14 +117,32 @@
     {
       "type": "text",
       "id": "label",
-      "label": "Selector label",
-      "default": "Shipping to (province):"
+      "label": "Heading",
+      "default": "Shipping to another province?"
     },
     {
       "type": "text",
-      "id": "default_label",
-      "label": "Default option text",
-      "default": "Store province (default)"
+      "id": "help_text",
+      "label": "Help text (optional)",
+      "default": "Environmental fees are set by your delivery province."
+    },
+    {
+      "type": "checkbox",
+      "id": "boxed",
+      "label": "Show highlight box",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "match_theme",
+      "label": "Match theme colors automatically",
+      "default": true
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Accent color (when not matching theme)",
+      "default": "#2E7D32"
     }
   ]
 }
