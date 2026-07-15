@@ -28,6 +28,18 @@
 %}
 
 {% if effective_mode == 'standard_fee_product' %}
+{% if block.settings.attention_pulse %}
+<style>
+  @keyframes synorai-pulse {
+    0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--synorai-accent) 35%, transparent); }
+    70%  { box-shadow: 0 0 0 9px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .synorai-province-selector { animation: synorai-pulse 1.6s ease-out 0.6s 2; }
+  }
+</style>
+{% endif %}
 <div class="synorai-province-selector" {{ block.shopify_attributes }}
      style="
        {% if block.settings.match_theme %}
@@ -130,6 +142,12 @@
       "type": "checkbox",
       "id": "boxed",
       "label": "Show highlight box",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "attention_pulse",
+      "label": "Pulse gently when the cart loads",
       "default": true
     },
     {
