@@ -21,6 +21,7 @@ type OrdersPaidPayload = {
   name?: string;
   processed_at?: string;
   created_at?: string;
+  location_id?: number | string | null;
   shipping_address?: { province_code?: string | null; country_code?: string | null } | null;
   billing_address?: { province_code?: string | null; country_code?: string | null } | null;
   line_items?: Array<{
@@ -60,6 +61,62 @@ async function fetchProductTags(
 }
 
 /**
+ * POS orders carry no shipping address; the sale happens where possession
+ * transfers. Prefer the selling location's registered province (multi-
+ * location correct), then fall back to the shop's compliance province.
+ */
+async function resolvePosDestination(
+  admin: AdminGraphqlClient,
+  locationId: number | string | null | undefined,
+): Promise<{ country: string | null; province: string | null }> {
+  try {
+    if (locationId) {
+      const res = await admin.graphql(
+        `#graphql
+          query PosLocationProvince($id: ID!) {
+            location(id: $id) {
+              address { provinceCode countryCode }
+            }
+          }
+        `,
+        { variables: { id: `gid://shopify/Location/${locationId}` } },
+      );
+      const json = await res.json();
+      const address = json?.data?.location?.address;
+      if (address?.countryCode) {
+        return {
+          country: String(address.countryCode).toUpperCase(),
+          province: address.provinceCode
+            ? String(address.provinceCode).toUpperCase()
+            : null,
+        };
+      }
+    }
+
+    const res = await admin.graphql(
+      `#graphql
+        query PosShopJurisdiction {
+          shop {
+            metafield(namespace: "synorai_ecocharge", key: "jurisdiction") {
+              value
+            }
+          }
+        }
+      `,
+    );
+    const json = await res.json();
+    const jurisdiction = json?.data?.shop?.metafield?.value;
+    if (typeof jurisdiction === "string" && jurisdiction.trim()) {
+      return { country: "CA", province: jurisdiction.trim().toUpperCase() };
+    }
+  } catch (error) {
+    console.error("[remittance] POS destination lookup failed", error);
+  }
+
+  return { country: null, province: null };
+}
+
+/**
  * Record one paid order for the remittance report. Idempotent per order —
  * Shopify redelivers webhooks, so we upsert on `${shop}:${orderId}`.
  * Stores no customer PII: destination province/country and fee math only.
@@ -88,9 +145,19 @@ export async function recordPaidOrder(params: {
   const { chargedFees, merchandise } = splitOrderLines(lines);
   const chargedCents = chargedFees.reduce((sum, l) => sum + l.totalCents, 0);
 
-  const destination = normalizeDestination(
+  let destination = normalizeDestination(
     payload.shipping_address ?? payload.billing_address,
   );
+
+  if (!destination.country && !destination.province && admin) {
+    const pos = await resolvePosDestination(admin, payload.location_id);
+    if (pos.country || pos.province) {
+      destination = normalizeDestination({
+        country_code: pos.country,
+        province_code: pos.province,
+      });
+    }
+  }
 
   let expectedCents: number | null = null;
   let expectedLines: unknown[] = [];
