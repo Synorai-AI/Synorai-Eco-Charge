@@ -221,10 +221,10 @@ export default function ReportsRoute() {
 
           {report.unknownDestinationOrders > 0 && (
             <p style={{ fontSize: 13, color: "#996b00", marginTop: 16 }}>
-              {report.unknownDestinationOrders} order(s) had no shipping or billing
-              address (e.g. some POS sales) and are counted under
-              &quot;Unrecognized&quot;. POS orders belong to your store&apos;s home
-              province.
+              {report.unknownDestinationOrders} order(s) could not be attributed
+              to a province (no shipping or billing address, and no POS location
+              information). New POS sales are attributed automatically to the
+              selling location&apos;s province.
             </p>
           )}
         </>
