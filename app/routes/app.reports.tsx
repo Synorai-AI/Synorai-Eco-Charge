@@ -1,3 +1,4 @@
+import React from "react";
 import type { LoaderFunctionArgs, HeadersFunction } from "react-router";
 import { Link, useLoaderData, useLocation, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -56,13 +57,23 @@ const leftCell: React.CSSProperties = { ...cellStyle, textAlign: "left" };
 function reportToCsv(report: RemittanceReport): string {
   const rows = [
     ["Destination", "Orders", "EHF charged", "EHF owed", "Difference", "Mismatched orders"],
-    ...report.rows.map((r) => [
-      r.label,
-      String(r.orders),
-      (r.chargedCents / 100).toFixed(2),
-      (r.expectedCents / 100).toFixed(2),
-      (r.deltaCents / 100).toFixed(2),
-      String(r.mismatches),
+    ...report.rows.flatMap((r) => [
+      [
+        r.label,
+        String(r.orders),
+        (r.chargedCents / 100).toFixed(2),
+        (r.expectedCents / 100).toFixed(2),
+        (r.deltaCents / 100).toFixed(2),
+        String(r.mismatches),
+      ],
+      ...r.categories.map((c) => [
+        `  ${r.province} — ${c.label}`,
+        `${c.unitsOwed} unit(s)`,
+        (c.chargedCents / 100).toFixed(2),
+        (c.owedCents / 100).toFixed(2),
+        ((c.chargedCents - c.owedCents) / 100).toFixed(2),
+        "",
+      ]),
     ]),
     [
       "TOTAL",
@@ -141,21 +152,37 @@ export default function ReportsRoute() {
             </thead>
             <tbody>
               {report.rows.map((row) => (
-                <tr key={row.province}>
-                  <td style={leftCell}>{row.label}</td>
-                  <td style={cellStyle}>{row.orders}</td>
-                  <td style={cellStyle}>{money(row.chargedCents)}</td>
-                  <td style={cellStyle}>{money(row.expectedCents)}</td>
-                  <td
-                    style={{
-                      ...cellStyle,
-                      color: row.deltaCents === 0 ? "#111" : row.deltaCents > 0 ? "#996b00" : "#b42318",
-                    }}
-                  >
-                    {money(row.deltaCents)}
-                  </td>
-                  <td style={cellStyle}>{row.mismatches || "—"}</td>
-                </tr>
+                <React.Fragment key={row.province}>
+                  <tr style={{ fontWeight: 600 }}>
+                    <td style={leftCell}>{row.label}</td>
+                    <td style={cellStyle}>{row.orders}</td>
+                    <td style={cellStyle}>{money(row.chargedCents)}</td>
+                    <td style={cellStyle}>{money(row.expectedCents)}</td>
+                    <td
+                      style={{
+                        ...cellStyle,
+                        color: row.deltaCents === 0 ? "#111" : row.deltaCents > 0 ? "#996b00" : "#b42318",
+                      }}
+                    >
+                      {money(row.deltaCents)}
+                    </td>
+                    <td style={cellStyle}>{row.mismatches || "—"}</td>
+                  </tr>
+                  {row.categories.map((c) => (
+                    <tr key={`${row.province}-${c.category}`} style={{ fontSize: 13, color: "#444" }}>
+                      <td style={{ ...leftCell, paddingLeft: 32 }}>
+                        {c.label} · {c.unitsOwed || c.unitsCharged} unit(s)
+                      </td>
+                      <td style={cellStyle} />
+                      <td style={cellStyle}>{money(c.chargedCents)}</td>
+                      <td style={cellStyle}>{money(c.owedCents)}</td>
+                      <td style={cellStyle}>
+                        {c.chargedCents === c.owedCents ? "—" : money(c.chargedCents - c.owedCents)}
+                      </td>
+                      <td style={cellStyle} />
+                    </tr>
+                  ))}
+                </React.Fragment>
               ))}
               <tr style={{ fontWeight: 700 }}>
                 <td style={leftCell}>Total</td>
