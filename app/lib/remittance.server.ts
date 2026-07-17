@@ -6,8 +6,8 @@ import {
   splitOrderLines,
   type OrderLineInput,
 } from "./remittance";
-import type { ProvinceCode } from "./eco-fees";
-import { PROVINCE_CONFIG } from "./eco-fees";
+import type { NormalizedCategory, ProvinceCode } from "./eco-fees";
+import { CATEGORY_LABEL_MAP, PROVINCE_CONFIG } from "./eco-fees";
 
 type AdminGraphqlClient = {
   graphql: (
@@ -231,6 +231,15 @@ export async function recordPaidOrder(params: {
   });
 }
 
+export type CategoryReportRow = {
+  category: string;
+  label: string;
+  unitsOwed: number;
+  owedCents: number;
+  unitsCharged: number;
+  chargedCents: number;
+};
+
 export type ProvinceReportRow = {
   province: string;
   label: string;
@@ -239,6 +248,7 @@ export type ProvinceReportRow = {
   expectedCents: number;
   deltaCents: number;
   mismatches: number;
+  categories: CategoryReportRow[];
 };
 
 export type MismatchRow = {
@@ -292,6 +302,7 @@ export async function buildRemittanceReport(
       expectedCents: 0,
       deltaCents: 0,
       mismatches: 0,
+      categories: [] as CategoryReportRow[],
     };
 
     row.orders += 1;
@@ -299,12 +310,60 @@ export async function buildRemittanceReport(
     row.expectedCents += record.expectedCents ?? 0;
     row.mismatches += record.mismatch ? 1 : 0;
     row.deltaCents = row.chargedCents - row.expectedCents;
+
+    // Remittance forms are filed as units x rate per category — accumulate
+    // the per-category lines stored with each order.
+    const getCategoryRow = (category: string): CategoryReportRow => {
+      let categoryRow = row.categories.find((c) => c.category === category);
+      if (!categoryRow) {
+        categoryRow = {
+          category,
+          label:
+            CATEGORY_LABEL_MAP[category as NormalizedCategory] ?? category,
+          unitsOwed: 0,
+          owedCents: 0,
+          unitsCharged: 0,
+          chargedCents: 0,
+        };
+        row.categories.push(categoryRow);
+      }
+      return categoryRow;
+    };
+
+    try {
+      for (const line of JSON.parse(record.expectedLinesJson) as Array<{
+        category?: string;
+        quantity?: number;
+        totalCents?: number;
+      }>) {
+        if (!line?.category) continue;
+        const categoryRow = getCategoryRow(line.category);
+        categoryRow.unitsOwed += line.quantity ?? 0;
+        categoryRow.owedCents += line.totalCents ?? 0;
+      }
+      for (const line of JSON.parse(record.chargedLinesJson) as Array<{
+        category?: string;
+        quantity?: number;
+        totalCents?: number;
+      }>) {
+        if (!line?.category) continue;
+        const categoryRow = getCategoryRow(line.category);
+        categoryRow.unitsCharged += line.quantity ?? 0;
+        categoryRow.chargedCents += line.totalCents ?? 0;
+      }
+    } catch {
+      // Malformed stored JSON: keep province totals, skip category detail.
+    }
+
     byProvince.set(key, row);
   }
 
   const rows = Array.from(byProvince.values()).sort((a, b) =>
     a.province.localeCompare(b.province),
   );
+  for (const row of rows) {
+    row.categories.sort((a, b) => a.label.localeCompare(b.label));
+  }
 
   return {
     from: from.toISOString(),
