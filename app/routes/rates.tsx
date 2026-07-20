@@ -234,7 +234,7 @@ export default function RatesPage() {
           Tired of tracking nine fee schedules?
         </h2>
         <p style={{ margin: "0 0 16px", color: "#d7f0dd", fontSize: 16 }}>
-          Synorai EcoCharge charges the correct EHF automatically — in the cart,
+          Synorai EcoCharge applies the correct EHF automatically — in the cart,
           at checkout, and on Shopify POS — for every province, and gives you a
           per-province remittance report at filing time. Rates stay current when
           programs change, so you never track a fee bulletin again.
