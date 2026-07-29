@@ -1,5 +1,6 @@
-import type { MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
+import { recordPageView } from "../lib/pageviews.server";
 
 import {
   ALLOWED_PROVINCES,
@@ -35,7 +36,8 @@ const PROVINCE_PROGRAM: Record<ProvinceCode, string> = {
   SK: "EPRA Saskatchewan",
 };
 
-export const meta: MetaFunction = () => {
+export const meta: MetaFunction<typeof loader> = ({ data }) => {
+  const host = data?.canonicalHost ?? "synorai.ai";
   const title =
     "Canadian EHF Eco Fee Rates 2026 — All 9 Provinces | Synorai EcoCharge";
   const description =
@@ -46,11 +48,15 @@ export const meta: MetaFunction = () => {
     { property: "og:title", content: title },
     { property: "og:description", content: description },
     { property: "og:type", content: "website" },
+    { property: "og:url", content: `https://${host}/rates` },
+    { tagName: "link", rel: "canonical", href: `https://${host}/rates` },
     { name: "robots", content: "index,follow" },
   ];
 };
 
-export async function loader() {
+export async function loader({ request }: LoaderFunctionArgs) {
+  await recordPageView(request, "/rates");
+
   const provinces = ALLOWED_PROVINCES.map((code) => ({
     code,
     name: PROVINCE_NAMES[code],
@@ -62,7 +68,11 @@ export async function loader() {
     })),
   }));
 
-  return { provinces, verified: RATES_VERIFIED };
+  return {
+    provinces,
+    verified: RATES_VERIFIED,
+    canonicalHost: process.env.PRIMARY_HOST ?? new URL(request.url).host,
+  };
 }
 
 const wrap: React.CSSProperties = {
