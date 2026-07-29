@@ -29,6 +29,19 @@ model EhfOrderRecord {
   @@index([shop, processedAt])
 }
 
+// Privacy-preserving daily page view counts for public pages (/, /rates).
+// No IPs, no cookies, no user agents stored — just date/path/src tallies.
+model PageViewDaily {
+  id        String   @id // `${date}:${path}:${src}`
+  date      String
+  path      String
+  src       String   @default("direct")
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@index([path, date])
+}
+
 model Session {
   id                  String    @id
   shop                String
