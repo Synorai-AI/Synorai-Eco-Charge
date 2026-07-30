@@ -45,20 +45,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-const LOGO = (
-  <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
-    <path fill="#57c040" d="M7.74,4.52c0-.15.12-.26.28-.26s.28.12.28.26v.46c.31.02.66.09.98.22.19.07.44.2.44.5,0,.27-.21.49-.5.49-.16,0-.29-.08-.49-.15-.18-.06-.4-.15-.7-.15-.53,0-.77.16-.77.45,0,.19.17.34.42.45.59.25,1.2.29,1.69.66.33.24.52.56.52,1.05,0,.86-.66,1.41-1.59,1.53v.45c0,.15-.12.26-.28.26s-.28-.12-.28-.26v-.43c-.41-.02-.84-.12-1.18-.27-.29-.12-.45-.28-.45-.52,0-.28.23-.49.51-.49.18,0,.29.09.51.21.18.09.42.19.81.19.63,0,.79-.31.79-.56,0-.24-.17-.39-.43-.49-.41-.18-.97-.27-1.43-.53-.4-.22-.73-.56-.73-1.22,0-.72.57-1.25,1.61-1.34v-.47Z"/>
-    <g fill="#57c040">
-      <path d="M4.27,14.19c.23.25.51.49.74.66.09,0,1.27,0,1.36,0-.81-.64-.3-.23-.97-.76-.45-.35-.43-1,0-1.34.7-.56.27-.2.97-.75-.95,0-2.55.2-3.21-1.25-.14,1.05.19,2.41,1.11,3.44Z"/>
-      <path d="M3.23,8.71c.47-.79.26-.42.82-1.39l.77.43c.23.12.47-.06.43-.29,0-.01-.57-3.62-.57-3.62-.03-.19-.23-.29-.39-.22,0,0-2.51.96-3.49,1.33-.24.09-.25.4-.04.51l.76.43c-.37.62-.19.32-.83,1.39-.93,1.56-.93,3.5,0,5.06.72,1.21,1.91,2.06,3.27,2.38-1.6-1.63-1.86-4.12-.73-6.01Z"/>
-      <path d="M9.95,3.95c.79,1.32.16.26.83,1.39l-.77.43c-.21.12-.2.42.04.51.26.1,3.23,1.23,3.49,1.33.17.07.37-.04.39-.22.37-2.54.22-1.43.57-3.62.04-.23-.2-.41-.43-.29l-.76.43c-.37-.62-.19-.31-.82-1.39C11.57.96,9.85,0,8,0,6.58,0,5.22.58,4.25,1.57c2.17-.51,4.48.36,5.7,2.38Z"/>
-      <path d="M3.6,2.38c-.07.11-.61,1.02-.68,1.14.53-.2.8-.3,1.15-.44.51-.2,1.1.12,1.19.67.06.38.02.14.19,1.2l.6-1.01c.5-.85,1.54-1.19,2.12-1.08-1.23-.9-2.87-1.16-4.57-.49Z"/>
-      <path d="M15.61,8.87c-.77,1.85-2.67,3.13-4.79,3.13-1.96,0-1.19,0-1.65,0,0-.51,0,.33,0-.86,0-.25-.29-.37-.47-.23-.62.48-1.66,1.27-2.93,2.29-.15.12-.15.33,0,.45.38.3,2.05,1.61,2.93,2.29.2.15.47,0,.47-.22v-.86h1.65c1.84,0,3.56-.97,4.49-2.53.72-1.21.88-2.65.48-3.95-.05.17-.11.33-.18.49Z"/>
-      <path d="M13.55,10.55c.71-.51,1.3-1.26,1.62-2.18.1-.29.18-.65.21-.94-.1-.18-.57-.96-.68-1.15-.05.34-.13.84-.19,1.21-.08.52-.63.88-1.19.67-.36-.14-.09-.04-1.15-.44.49.84,1.45,2.08.49,3.34.26-.1.57-.27.89-.5Z"/>
-    </g>
-  </svg>
-);
-
 const wrap: React.CSSProperties = {
   fontFamily:
     '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
@@ -72,46 +58,57 @@ export default function Index() {
 
   return (
     <main style={wrap}>
+      {/* Brand header — logo sits on white so the navy wordmark stays legible */}
+      <header
+        style={{
+          background: "#fff",
+          borderBottom: "1px solid #ecebf5",
+          padding: "16px 20px",
+        }}
+      >
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <img
+            src="/synorai-logo.png"
+            alt="Synorai"
+            width={433}
+            height={99}
+            style={{ width: 168, height: "auto", display: "block" }}
+          />
+        </div>
+      </header>
+
       {/* Hero */}
       <section
         style={{
-          background: "linear-gradient(135deg,#0b3d2e 0%,#14532d 55%,#166534 100%)",
+          background:
+            "linear-gradient(135deg,#0A0358 0%,#150A6B 55%,#3D0FA8 100%)",
           color: "#fff",
-          padding: "64px 20px 72px",
+          padding: "68px 20px 76px",
         }}
       >
-        <div style={{ maxWidth: 860, margin: "0 auto" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div
-              style={{
-                width: 52,
-                height: 52,
-                borderRadius: 12,
-                background: "#fff",
-                padding: 6,
-                flexShrink: 0,
-              }}
-            >
-              {LOGO}
-            </div>
-            <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: 0.3 }}>
-              Synorai
-            </span>
-          </div>
-
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <h1
             style={{
               fontSize: 42,
               lineHeight: 1.15,
-              margin: "34px 0 14px",
+              margin: "0 0 16px",
               maxWidth: 720,
               fontWeight: 800,
+              letterSpacing: -0.5,
             }}
           >
             Practical software, built with{" "}
-            <span style={{ color: "#4ade80" }}>privacy at its core</span>.
+            <span style={{ color: "#01D2FC" }}>privacy at its core</span>.
           </h1>
-          <p style={{ fontSize: 19, color: "#bbf7d0", maxWidth: 640, margin: 0 }}>
+          <p
+            style={{
+              fontSize: 19,
+              color: "#c8c4e8",
+              maxWidth: 640,
+              margin: 0,
+              lineHeight: 1.6,
+            }}
+          >
             Synorai builds compliance and automation tools for small
             businesses — made in Airdrie, Alberta, by people who run one.
           </p>
@@ -119,13 +116,13 @@ export default function Index() {
       </section>
 
       {/* Product */}
-      <section style={{ padding: "48px 20px 8px", background: "#f6faf7" }}>
+      <section style={{ padding: "48px 20px 8px", background: "#f7f7fb" }}>
         <div style={{ maxWidth: 860, margin: "0 auto" }}>
           <p
             style={{
               fontSize: 13,
               fontWeight: 700,
-              color: "#3a6b4d",
+              color: "#5b53a6",
               letterSpacing: 1,
               margin: "0 0 10px",
             }}
@@ -136,7 +133,7 @@ export default function Index() {
           <div
             style={{
               background: "#fff",
-              border: "1px solid #d8eadd",
+              border: "1px solid #e4e2f0",
               borderRadius: 14,
               padding: "26px 28px",
               boxShadow: "0 4px 18px rgba(20,40,29,0.06)",
@@ -200,7 +197,7 @@ export default function Index() {
       </section>
 
       {/* Values */}
-      <section style={{ padding: "24px 20px 48px", background: "#f6faf7" }}>
+      <section style={{ padding: "24px 20px 48px", background: "#f7f7fb" }}>
         <div
           style={{
             maxWidth: 860,
@@ -228,7 +225,7 @@ export default function Index() {
               key={v.title}
               style={{
                 background: "#fff",
-                border: "1px solid #d8eadd",
+                border: "1px solid #e4e2f0",
                 borderRadius: 12,
                 padding: "18px 20px",
               }}
@@ -245,7 +242,7 @@ export default function Index() {
       {/* Footer */}
       <footer
         style={{
-          borderTop: "1px solid #e3efe7",
+          borderTop: "1px solid #e4e2f0",
           padding: "26px 20px 40px",
           background: "#fff",
         }}
@@ -259,12 +256,12 @@ export default function Index() {
             flexWrap: "wrap",
             gap: 12,
             fontSize: 14,
-            color: "#5b7263",
+            color: "#5f5b7d",
           }}
         >
           <span>© 2026 Synorai Inc. · Airdrie, Alberta, Canada</span>
           <span>
-            <a href="mailto:support@synorai.ai" style={{ color: "#166534" }}>
+            <a href="mailto:support@synorai.ai" style={{ color: "#7402FA" }}>
               support@synorai.ai
             </a>
           </span>

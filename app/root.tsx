@@ -16,6 +16,7 @@ import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: polarisStyles },
+  { rel: "icon", type: "image/png", href: "/synorai-logo.png" },
 ];
 
 export async function loader({ request }: LoaderFunctionArgs) {
