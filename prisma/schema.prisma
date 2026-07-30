@@ -42,6 +42,21 @@ model PageViewDaily {
   @@index([path, date])
 }
 
+// "Tell me when the rates change" list from /rates. CASL: express opt-in
+// only (the visitor types the address and submits), every mail must carry
+// the unsubscribe link built from `unsubscribeToken` plus Synorai's mailing
+// address. No name, no company, no IP — the address is the whole record.
+model RateAlertSubscriber {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  src              String    @default("direct")
+  unsubscribeToken String    @unique
+  unsubscribedAt   DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([unsubscribedAt])
+}
+
 model Session {
   id                  String    @id
   shop                String
