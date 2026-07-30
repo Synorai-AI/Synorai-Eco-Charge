@@ -110,7 +110,7 @@ export default function Index() {
             }}
           >
             Synorai builds compliance and automation tools for small
-            businesses — made in Airdrie, Alberta, by people who run one.
+            businesses — made in Alberta, Canada, by people who run one.
           </p>
         </div>
       </section>
@@ -259,7 +259,7 @@ export default function Index() {
             color: "#5f5b7d",
           }}
         >
-          <span>© 2026 Synorai Inc. · Airdrie, Alberta, Canada</span>
+          <span>© 2026 Synorai Inc. · Alberta, Canada</span>
           <span>
             <a href="mailto:support@synorai.ai" style={{ color: "#7402FA" }}>
               support@synorai.ai
