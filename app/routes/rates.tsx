@@ -1,6 +1,11 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type {
+  ActionFunctionArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { useFetcher, useLoaderData } from "react-router";
 import { recordPageView } from "../lib/pageviews.server";
+import { subscribeToRateAlerts } from "../lib/rate-alerts.server";
 
 import {
   ALLOWED_PROVINCES,
@@ -75,6 +80,24 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
+export async function action({ request }: ActionFunctionArgs) {
+  const form = await request.formData();
+
+  // Honeypot: a real person never sees this field, so anything in it is a bot.
+  // Report success anyway — telling scrapers they were caught just teaches them.
+  if ((form.get("company") as string | null)?.trim()) {
+    return {
+      ok: true,
+      message: "You're on the list. We'll email you when a province changes its EHF schedule.",
+    };
+  }
+
+  const email = (form.get("email") as string | null) ?? "";
+  const src = new URL(request.url).searchParams.get("src");
+
+  return subscribeToRateAlerts(email, src);
+}
+
 const wrap: React.CSSProperties = {
   maxWidth: 860,
   margin: "0 auto",
@@ -117,6 +140,9 @@ export default function RatesPage() {
   const { provinces, verified } = useLoaderData() as Awaited<
     ReturnType<typeof loader>
   >;
+  const signup = useFetcher<typeof action>();
+  const signupResult = signup.data;
+  const submitting = signup.state !== "idle";
 
   return (
     <>
@@ -252,6 +278,134 @@ export default function RatesPage() {
           <strong>Nunavut</strong> has none. Always confirm your obligations
           with the current program administrator for your province.
         </p>
+      </section>
+
+      {/* Rate-change alerts. This is the funnel: the schedule stays free, but
+          the promise to tell you when it moves is what people hand over an
+          address for. Doubles as the demand signal for a paid data feed. */}
+      <section
+        id="alerts"
+        style={{
+          background: "#fff",
+          border: "2px solid #bfe6c9",
+          borderRadius: 14,
+          padding: "26px 28px",
+          margin: "10px 0 30px",
+        }}
+      >
+        <h2 style={{ fontSize: 22, margin: "0 0 8px" }}>
+          Get told when these rates change
+        </h2>
+        <p style={{ margin: "0 0 18px", fontSize: 16, color: "#3f5a49" }}>
+          Provinces revise their EHF schedules without much warning — BC raised
+          display fees sharply in June 2026 and added a new 65&quot; and over
+          tier. We re-verify every schedule against the official ARMA and EPRA
+          bulletins. Leave your email and we&apos;ll tell you the day something
+          moves. No newsletter, no product pitches — rate changes only.
+        </p>
+
+        {signupResult?.ok ? (
+          <p
+            role="status"
+            style={{
+              margin: 0,
+              padding: "14px 16px",
+              background: "#eefaf0",
+              border: "1px solid #bfe6c9",
+              borderRadius: 10,
+              fontSize: 16,
+              fontWeight: 600,
+              color: "#166534",
+            }}
+          >
+            {signupResult.message}
+          </p>
+        ) : (
+          <signup.Form method="post" noValidate>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 10,
+                alignItems: "flex-start",
+              }}
+            >
+              <label htmlFor="email" style={{ position: "absolute", left: -9999 }}>
+                Email address
+              </label>
+              <input
+                id="email"
+                type="email"
+                name="email"
+                required
+                autoComplete="email"
+                placeholder="you@yourstore.ca"
+                disabled={submitting}
+                style={{
+                  flex: "1 1 260px",
+                  minWidth: 0,
+                  padding: "12px 14px",
+                  fontSize: 16,
+                  borderRadius: 999,
+                  border: "1px solid #bfe6c9",
+                  background: "#fff",
+                  color: "#14281d",
+                }}
+              />
+              {/* Honeypot — hidden from people, irresistible to bots. */}
+              <input
+                type="text"
+                name="company"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  left: -9999,
+                  width: 1,
+                  height: 1,
+                  opacity: 0,
+                }}
+              />
+              <button
+                type="submit"
+                disabled={submitting}
+                style={{
+                  padding: "12px 26px",
+                  fontSize: 16,
+                  fontWeight: 700,
+                  borderRadius: 999,
+                  border: "none",
+                  background: submitting ? "#9bd3ad" : "#166534",
+                  color: "#fff",
+                  cursor: submitting ? "default" : "pointer",
+                }}
+              >
+                {submitting ? "Adding…" : "Notify me"}
+              </button>
+            </div>
+
+            {signupResult && !signupResult.ok ? (
+              <p
+                role="alert"
+                style={{
+                  margin: "10px 0 0",
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: "#a3341f",
+                }}
+              >
+                {signupResult.message}
+              </p>
+            ) : null}
+
+            <p style={{ margin: "12px 0 0", fontSize: 13, color: "#6a7d70" }}>
+              Sent by Synorai, Airdrie, Alberta. We store your address and
+              nothing else, we never sell or share it, and every email carries a
+              one-click unsubscribe link.
+            </p>
+          </signup.Form>
+        )}
       </section>
 
       <aside
