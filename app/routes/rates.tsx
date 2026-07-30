@@ -119,8 +119,31 @@ export default function RatesPage() {
   >;
 
   return (
+    <>
+      {/* Brand header — same lockup as the main site so shared links look
+          like they belong to a company, not a stray page. */}
+      <header
+        style={{
+          background: "#fff",
+          borderBottom: "1px solid #ecebf5",
+          padding: "16px 20px",
+        }}
+      >
+        <div style={{ maxWidth: 860, margin: "0 auto" }}>
+          <a href="/" style={{ display: "inline-block" }}>
+            <img
+              src="/synorai-logo.png"
+              alt="Synorai"
+              width={433}
+              height={99}
+              style={{ width: 168, height: "auto", display: "block" }}
+            />
+          </a>
+        </div>
+      </header>
+
     <main style={wrap}>
-      <p style={{ fontSize: 13, color: "#3a6b4d", margin: 0, fontWeight: 600 }}>
+      <p style={{ fontSize: 13, color: "#5b53a6", margin: 0, fontWeight: 700, letterSpacing: 1 }}>
         SYNORAI ECOCHARGE
       </p>
       <h1 style={{ fontSize: 34, lineHeight: 1.15, margin: "6px 0 10px" }}>
@@ -271,6 +294,13 @@ export default function RatesPage() {
         general reference; retailers remain responsible for confirming their own
         compliance and remittance obligations with the applicable program.
       </p>
+
+      <p style={{ fontSize: 14, marginTop: 26 }}>
+        <a href="/" style={{ color: "#7402FA", fontWeight: 600 }}>
+          ← More from Synorai
+        </a>
+      </p>
     </main>
+    </>
   );
 }
