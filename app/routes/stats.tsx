@@ -1,6 +1,10 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { getPageViewStats, type PageViewStats } from "../lib/pageviews.server";
+import {
+  getSubscriberStats,
+  type SubscriberStats,
+} from "../lib/rate-alerts.server";
 
 export const meta: MetaFunction = () => [
   { title: "Stats" },
@@ -19,8 +23,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw new Response("Not Found", { status: 404 });
   }
 
-  const stats = await getPageViewStats(30);
-  return { stats };
+  const [stats, subscribers] = await Promise.all([
+    getPageViewStats(30),
+    getSubscriberStats(),
+  ]);
+  return { stats, subscribers };
 }
 
 const cell: React.CSSProperties = {
@@ -32,7 +39,10 @@ const cell: React.CSSProperties = {
 const num: React.CSSProperties = { ...cell, textAlign: "right", fontVariantNumeric: "tabular-nums" };
 
 export default function StatsRoute() {
-  const { stats } = useLoaderData() as { stats: PageViewStats };
+  const { stats, subscribers } = useLoaderData() as {
+    stats: PageViewStats;
+    subscribers: SubscriberStats;
+  };
 
   return (
     <main
@@ -44,7 +54,73 @@ export default function StatsRoute() {
         color: "#14281d",
       }}
     >
-      <h1 style={{ fontSize: 26 }}>Page views — last {stats.days} days</h1>
+      {/* Subscribers first — it's the number that decides whether the rates
+          page is doing its job, and the addresses are needed to actually send. */}
+      <h1 style={{ fontSize: 26, marginTop: 0 }}>
+        Rate alert list — {subscribers.active}{" "}
+        {subscribers.active === 1 ? "subscriber" : "subscribers"}
+      </h1>
+      <p style={{ color: "#5b7263", fontSize: 14 }}>
+        {subscribers.active} active
+        {subscribers.unsubscribed > 0
+          ? `, ${subscribers.unsubscribed} unsubscribed`
+          : ""}
+        . Sends go out by hand, one at a time — copy the addresses below. Every
+        message needs the unsubscribe link and the Synorai mailing address.
+      </p>
+
+      {subscribers.bySrc.length > 0 && (
+        <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: 18 }}>
+          <thead>
+            <tr style={{ background: "#f5f5f5" }}>
+              <th style={cell}>Signup source</th>
+              <th style={num}>Subscribers</th>
+            </tr>
+          </thead>
+          <tbody>
+            {subscribers.bySrc.map((s) => (
+              <tr key={s.src}>
+                <td style={cell}>{s.src}</td>
+                <td style={num}>{s.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <table style={{ borderCollapse: "collapse", width: "100%" }}>
+        <thead>
+          <tr style={{ background: "#f5f5f5" }}>
+            <th style={cell}>Email</th>
+            <th style={cell}>Source</th>
+            <th style={cell}>Signed up</th>
+            <th style={cell}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {subscribers.rows.map((r) => (
+            <tr key={r.email} style={r.unsubscribed ? { opacity: 0.45 } : undefined}>
+              <td style={cell}>{r.email}</td>
+              <td style={cell}>{r.src}</td>
+              <td style={cell}>{r.signedUp}</td>
+              <td style={cell}>
+                {r.unsubscribed ? "unsubscribed — do not email" : "active"}
+              </td>
+            </tr>
+          ))}
+          {subscribers.rows.length === 0 && (
+            <tr>
+              <td style={cell} colSpan={4}>
+                Nobody has signed up yet.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <h1 style={{ fontSize: 26, marginTop: 40 }}>
+        Page views — last {stats.days} days
+      </h1>
       <p style={{ color: "#5b7263", fontSize: 14 }}>
         Human traffic only (obvious bots and crawlers excluded). Daily tallies,
         UTC days. Tag links with <code>?src=name</code> to tell channels apart.

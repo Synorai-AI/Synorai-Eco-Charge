@@ -108,3 +108,55 @@ export async function unsubscribeByToken(token: string): Promise<boolean> {
 export async function getSubscriberCount(): Promise<number> {
   return db.rateAlertSubscriber.count({ where: { unsubscribedAt: null } });
 }
+
+export type SubscriberRow = {
+  email: string;
+  src: string;
+  signedUp: string;
+  unsubscribed: boolean;
+};
+
+export type SubscriberStats = {
+  active: number;
+  unsubscribed: number;
+  bySrc: Array<{ src: string; count: number }>;
+  rows: SubscriberRow[];
+};
+
+/**
+ * Everything the private stats dashboard needs to answer "how many people
+ * signed up, where did they come from, and what are their addresses" —
+ * the last one matters because sends go out one at a time, by hand.
+ */
+export async function getSubscriberStats(): Promise<SubscriberStats> {
+  const all = await db.rateAlertSubscriber.findMany({
+    orderBy: { createdAt: "desc" },
+  });
+
+  const bySrc = new Map<string, number>();
+  let active = 0;
+  let unsubscribed = 0;
+
+  for (const s of all) {
+    if (s.unsubscribedAt) {
+      unsubscribed += 1;
+      continue;
+    }
+    active += 1;
+    bySrc.set(s.src, (bySrc.get(s.src) ?? 0) + 1);
+  }
+
+  return {
+    active,
+    unsubscribed,
+    bySrc: Array.from(bySrc, ([src, count]) => ({ src, count })).sort(
+      (a, b) => b.count - a.count,
+    ),
+    rows: all.map((s: (typeof all)[number]) => ({
+      email: s.email,
+      src: s.src,
+      signedUp: s.createdAt.toISOString().slice(0, 10),
+      unsubscribed: s.unsubscribedAt !== null,
+    })),
+  };
+}
