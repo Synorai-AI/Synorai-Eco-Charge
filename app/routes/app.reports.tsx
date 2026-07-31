@@ -54,30 +54,64 @@ const cellStyle: React.CSSProperties = {
 };
 const leftCell: React.CSSProperties = { ...cellStyle, textAlign: "left" };
 
+/**
+ * Separate Category / Units / Rate columns so a bookkeeper can read
+ * units x rate per category straight off the sheet — that's the shape the
+ * programs want the filing in.
+ */
 function reportToCsv(report: RemittanceReport): string {
   const rows = [
-    ["Destination", "Orders", "EHF charged", "EHF owed", "Difference", "Mismatched orders"],
+    [
+      "Destination",
+      "Category",
+      "Units",
+      "Rate per unit",
+      "EHF charged",
+      "EHF owed",
+      "Difference",
+      "Mismatched orders",
+    ],
     ...report.rows.flatMap((r) => [
       [
         r.label,
-        String(r.orders),
+        "— all categories —",
+        `${r.orders} order(s)`,
+        "",
         (r.chargedCents / 100).toFixed(2),
         (r.expectedCents / 100).toFixed(2),
         (r.deltaCents / 100).toFixed(2),
         String(r.mismatches),
       ],
       ...r.categories.map((c) => [
-        `  ${r.province} — ${c.label}`,
-        `${c.unitsOwed} unit(s)`,
+        r.label,
+        c.label,
+        String(c.unitsOwed || c.unitsCharged),
+        c.ratePerUnitCents === null ? "" : (c.ratePerUnitCents / 100).toFixed(2),
         (c.chargedCents / 100).toFixed(2),
         (c.owedCents / 100).toFixed(2),
         ((c.chargedCents - c.owedCents) / 100).toFixed(2),
         "",
       ]),
+      ...(r.undeterminedOrders > 0
+        ? [
+            [
+              r.label,
+              `!! ${r.undeterminedOrders} order(s) — amount owed could NOT be determined, figures above exclude them`,
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+            ],
+          ]
+        : []),
     ]),
     [
       "TOTAL",
+      "",
       String(report.totals.orders),
+      "",
       (report.totals.chargedCents / 100).toFixed(2),
       (report.totals.expectedCents / 100).toFixed(2),
       ((report.totals.chargedCents - report.totals.expectedCents) / 100).toFixed(2),
@@ -92,6 +126,18 @@ function reportToCsv(report: RemittanceReport): string {
 export default function ReportsRoute() {
   const { report } = useLoaderData() as { report: RemittanceReport };
   const location = useLocation();
+
+  // Expanded by default: the itemisation is the whole point of the report, and
+  // someone reading figures out to their bookkeeper shouldn't have to click
+  // nine times first. Collapsing is for tidying up, not for hiding detail.
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
+  const toggle = (province: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(province)) next.delete(province);
+      else next.add(province);
+      return next;
+    });
 
   const downloadCsv = () => {
     const blob = new Blob([reportToCsv(report)], { type: "text/csv" });
@@ -154,7 +200,43 @@ export default function ReportsRoute() {
               {report.rows.map((row) => (
                 <React.Fragment key={row.province}>
                   <tr style={{ fontWeight: 600 }}>
-                    <td style={leftCell}>{row.label}</td>
+                    <td style={leftCell}>
+                      {row.categories.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => toggle(row.province)}
+                          aria-expanded={!collapsed.has(row.province)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            font: "inherit",
+                            color: "inherit",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              display: "inline-block",
+                              transform: collapsed.has(row.province)
+                                ? "rotate(-90deg)"
+                                : "none",
+                            }}
+                          >
+                            ▾
+                          </span>
+                          {row.label}
+                        </button>
+                      ) : (
+                        <span style={{ paddingLeft: 20, display: "inline-block" }}>
+                          {row.label}
+                        </span>
+                      )}
+                    </td>
                     <td style={cellStyle}>{row.orders}</td>
                     <td style={cellStyle}>{money(row.chargedCents)}</td>
                     <td style={cellStyle}>{money(row.expectedCents)}</td>
@@ -168,20 +250,67 @@ export default function ReportsRoute() {
                     </td>
                     <td style={cellStyle}>{row.mismatches || "—"}</td>
                   </tr>
-                  {row.categories.map((c) => (
-                    <tr key={`${row.province}-${c.category}`} style={{ fontSize: 13, color: "#444" }}>
-                      <td style={{ ...leftCell, paddingLeft: 32 }}>
-                        {c.label} · {c.unitsOwed || c.unitsCharged} unit(s)
+                  {!collapsed.has(row.province) &&
+                    row.categories.map((c) => {
+                      const units = c.unitsOwed || c.unitsCharged;
+                      return (
+                        <tr
+                          key={`${row.province}-${c.category}`}
+                          style={{ fontSize: 13, color: "#444" }}
+                        >
+                          <td style={{ ...leftCell, paddingLeft: 40 }}>
+                            <strong style={{ fontWeight: 600 }}>{c.label}</strong>
+                            {" — "}
+                            {units} unit{units === 1 ? "" : "s"}
+                            {c.ratePerUnitCents !== null && (
+                              <>
+                                {" × "}
+                                {money(c.ratePerUnitCents)}
+                                {" = "}
+                                <strong style={{ fontWeight: 600 }}>
+                                  {money(units * c.ratePerUnitCents)}
+                                </strong>
+                              </>
+                            )}
+                          </td>
+                          <td style={cellStyle} />
+                          <td style={cellStyle}>{money(c.chargedCents)}</td>
+                          <td style={cellStyle}>{money(c.owedCents)}</td>
+                          <td style={cellStyle}>
+                            {c.chargedCents === c.owedCents
+                              ? "—"
+                              : money(c.chargedCents - c.owedCents)}
+                          </td>
+                          <td style={cellStyle} />
+                        </tr>
+                      );
+                    })}
+
+                  {!collapsed.has(row.province) &&
+                    row.categories.length === 0 &&
+                    !row.noProgram && (
+                      <tr style={{ fontSize: 13, color: "#777" }}>
+                        <td style={{ ...leftCell, paddingLeft: 40 }} colSpan={6}>
+                          No eco-fee-eligible items in these orders — nothing to
+                          itemise. If that looks wrong, the products are probably
+                          missing their <code>eco-category-*</code> tags.
+                        </td>
+                      </tr>
+                    )}
+
+                  {row.undeterminedOrders > 0 && (
+                    <tr style={{ fontSize: 13, color: "#b42318" }}>
+                      <td style={{ ...leftCell, paddingLeft: 40 }} colSpan={6}>
+                        {row.undeterminedOrders} order
+                        {row.undeterminedOrders === 1 ? "" : "s"} could not be
+                        priced (product tags unavailable, usually a deleted
+                        product) — the EHF owed figure above{" "}
+                        <strong>excludes</strong>{" "}
+                        {row.undeterminedOrders === 1 ? "it" : "them"}. Don&apos;t
+                        treat this row as complete.
                       </td>
-                      <td style={cellStyle} />
-                      <td style={cellStyle}>{money(c.chargedCents)}</td>
-                      <td style={cellStyle}>{money(c.owedCents)}</td>
-                      <td style={cellStyle}>
-                        {c.chargedCents === c.owedCents ? "—" : money(c.chargedCents - c.owedCents)}
-                      </td>
-                      <td style={cellStyle} />
                     </tr>
-                  ))}
+                  )}
                 </React.Fragment>
               ))}
               <tr style={{ fontWeight: 700 }}>

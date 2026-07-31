@@ -238,6 +238,13 @@ export type CategoryReportRow = {
   owedCents: number;
   unitsCharged: number;
   chargedCents: number;
+  /**
+   * Scheduled per-unit rate for this category in this province, straight from
+   * PROVINCE_CONFIG. Null where the province runs no schedule. Filings are
+   * units x rate per category, so the rate belongs on the report — nobody
+   * should have to divide two columns to recover it.
+   */
+  ratePerUnitCents: number | null;
 };
 
 export type ProvinceReportRow = {
@@ -249,6 +256,30 @@ export type ProvinceReportRow = {
   deltaCents: number;
   mismatches: number;
   categories: CategoryReportRow[];
+  /**
+   * Orders where the amount owed could NOT be computed (product tags
+   * unresolvable, usually a deleted product). Tracked separately because
+   * "we couldn't work it out" must never render as "$0.00 owed" on a
+   * compliance report.
+   */
+  undeterminedOrders: number;
+  /** True when the destination runs no regulated EHF schedule at all. */
+  noProgram: boolean;
+};
+
+/**
+ * Real Canadian jurisdictions that run no regulated electronics EHF schedule.
+ * Ontario ended its program in 2021 under individual producer responsibility;
+ * the territories have none this app can price. Orders shipped here owe $0
+ * legitimately — a different statement from "we don't recognise this".
+ */
+const NO_PROGRAM_PROVINCES = new Set(["ON", "YT", "NT", "NU"]);
+
+const PROVINCE_DISPLAY_NAME: Record<string, string> = {
+  ON: "Ontario",
+  YT: "Yukon",
+  NT: "Northwest Territories",
+  NU: "Nunavut",
 };
 
 export type MismatchRow = {
@@ -287,12 +318,24 @@ export async function buildRemittanceReport(
       unknownDestinationOrders += 1;
     }
 
+    const province = record.destinationProvince;
+    const noProgram = province !== null && NO_PROGRAM_PROVINCES.has(province);
+
+    // Every destination lands in exactly one of these buckets. "Unrecognized"
+    // used to swallow three unrelated cases, leaving an accountant unable to
+    // tell "Ontario owes nothing" from "we don't know where this shipped".
     const label =
-      record.destinationProvince && record.destinationProvince in PROVINCE_CONFIG
-        ? PROVINCE_CONFIG[record.destinationProvince as ProvinceCode].label
-        : record.destinationCountry && record.destinationCountry !== "CA"
-          ? `Outside Canada (${key})`
-          : `Unrecognized (${key})`;
+      province && province in PROVINCE_CONFIG
+        ? PROVINCE_CONFIG[province as ProvinceCode].label
+        : noProgram
+          ? `${PROVINCE_DISPLAY_NAME[province!] ?? province} — no regulated EHF program`
+          : record.destinationCountry && record.destinationCountry !== "CA"
+            ? `Outside Canada (${key})`
+            : province
+              ? `${province} — not a recognized province code`
+              : record.destinationCountry === "CA"
+                ? "Canada — province not determined"
+                : "Destination not determined";
 
     const row = byProvince.get(key) ?? {
       province: key,
@@ -303,11 +346,14 @@ export async function buildRemittanceReport(
       deltaCents: 0,
       mismatches: 0,
       categories: [] as CategoryReportRow[],
+      undeterminedOrders: 0,
+      noProgram,
     };
 
     row.orders += 1;
     row.chargedCents += record.chargedCents;
     row.expectedCents += record.expectedCents ?? 0;
+    if (record.expectedCents === null) row.undeterminedOrders += 1;
     row.mismatches += record.mismatch ? 1 : 0;
     row.deltaCents = row.chargedCents - row.expectedCents;
 
@@ -316,6 +362,13 @@ export async function buildRemittanceReport(
     const getCategoryRow = (category: string): CategoryReportRow => {
       let categoryRow = row.categories.find((c) => c.category === category);
       if (!categoryRow) {
+        const scheduled =
+          province && province in PROVINCE_CONFIG
+            ? PROVINCE_CONFIG[province as ProvinceCode].feeByCategory[
+                category as NormalizedCategory
+              ]
+            : undefined;
+
         categoryRow = {
           category,
           label:
@@ -324,6 +377,8 @@ export async function buildRemittanceReport(
           owedCents: 0,
           unitsCharged: 0,
           chargedCents: 0,
+          ratePerUnitCents:
+            typeof scheduled === "number" ? Math.round(scheduled * 100) : null,
         };
         row.categories.push(categoryRow);
       }
