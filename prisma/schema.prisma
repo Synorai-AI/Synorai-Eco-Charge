@@ -25,6 +25,10 @@ model EhfOrderRecord {
   mismatch            Boolean  @default(false)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+  /// "pos" or "online", from Shopify's order source_name. Nullable on
+  /// purpose: records written before channel capture genuinely don't know,
+  /// and defaulting them to "online" would be inventing history.
+  channel             String?
 
   @@index([shop, processedAt])
 }

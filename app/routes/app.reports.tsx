@@ -74,7 +74,7 @@ function reportToCsv(report: RemittanceReport): string {
     ...report.rows.flatMap((r) => [
       [
         r.label,
-        "— all categories —",
+        `— all categories — (${r.posOrders} in-store, ${r.onlineOrders} online${r.unknownChannelOrders > 0 ? `, ${r.unknownChannelOrders} untracked` : ""})`,
         `${r.orders} order(s)`,
         "",
         (r.chargedCents / 100).toFixed(2),
@@ -250,6 +250,22 @@ export default function ReportsRoute() {
                     </td>
                     <td style={cellStyle}>{row.mismatches || "—"}</td>
                   </tr>
+                  {!collapsed.has(row.province) && (
+                    <tr style={{ fontSize: 12, color: "#777" }}>
+                      <td style={{ ...leftCell, paddingLeft: 40 }} colSpan={6}>
+                        {[
+                          row.posOrders > 0 ? `${row.posOrders} in-store (POS)` : null,
+                          row.onlineOrders > 0 ? `${row.onlineOrders} online` : null,
+                          row.unknownChannelOrders > 0
+                            ? `${row.unknownChannelOrders} recorded before channel tracking`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </td>
+                    </tr>
+                  )}
+
                   {!collapsed.has(row.province) &&
                     row.categories.map((c) => {
                       const units = c.unitsOwed || c.unitsCharged;

@@ -22,6 +22,7 @@ type OrdersPaidPayload = {
   processed_at?: string;
   created_at?: string;
   location_id?: number | string | null;
+  source_name?: string | null;
   shipping_address?: { province_code?: string | null; country_code?: string | null } | null;
   billing_address?: { province_code?: string | null; country_code?: string | null } | null;
   line_items?: Array<{
@@ -60,14 +61,33 @@ async function fetchProductTags(
   return tags;
 }
 
+export type OrderChannel = "pos" | "online";
+
+/**
+ * Shopify stamps `source_name` on every order: "pos" for Point of Sale,
+ * "web" / "shopify_draft_order" / an app handle otherwise. It arrives in the
+ * webhook payload, so channel costs us nothing to capture — no API call.
+ *
+ * Channel is deliberately NOT a substitute for province. A counter sale in
+ * Airdrie is still an Alberta filing; channel only says how it was rung up.
+ */
+export function normalizeChannel(sourceName: string | null | undefined): OrderChannel {
+  return String(sourceName ?? "").trim().toLowerCase() === "pos" ? "pos" : "online";
+}
+
 /**
  * POS orders carry no shipping address; the sale happens where possession
  * transfers. Prefer the selling location's registered province (multi-
  * location correct), then fall back to the shop's compliance province.
+ *
+ * Every failure path logs. A silent failure here misfiles a compliance record
+ * into "destination not determined", which is exactly the kind of thing that
+ * should be findable in the logs rather than discovered at filing time.
  */
 async function resolvePosDestination(
   admin: AdminGraphqlClient,
   locationId: number | string | null | undefined,
+  orderId: string,
 ): Promise<{ country: string | null; province: string | null }> {
   try {
     if (locationId) {
@@ -91,6 +111,14 @@ async function resolvePosDestination(
             : null,
         };
       }
+      console.warn(
+        `[remittance] order ${orderId}: location ${locationId} returned no country code; falling back to shop jurisdiction`,
+        json?.errors ?? "",
+      );
+    } else {
+      console.warn(
+        `[remittance] order ${orderId}: no location_id on the order; falling back to shop jurisdiction`,
+      );
     }
 
     const res = await admin.graphql(
@@ -109,8 +137,16 @@ async function resolvePosDestination(
     if (typeof jurisdiction === "string" && jurisdiction.trim()) {
       return { country: "CA", province: jurisdiction.trim().toUpperCase() };
     }
+
+    console.warn(
+      `[remittance] order ${orderId}: shop jurisdiction metafield is unset or empty — the order cannot be attributed to a province. Set the province in app Settings.`,
+      json?.errors ?? "",
+    );
   } catch (error) {
-    console.error("[remittance] POS destination lookup failed", error);
+    console.error(
+      `[remittance] order ${orderId}: destination lookup threw; order will be recorded without a province`,
+      error,
+    );
   }
 
   return { country: null, province: null };
@@ -145,17 +181,41 @@ export async function recordPaidOrder(params: {
   const { chargedFees, merchandise } = splitOrderLines(lines);
   const chargedCents = chargedFees.reduce((sum, l) => sum + l.totalCents, 0);
 
+  const channel = normalizeChannel(payload.source_name);
+
   let destination = normalizeDestination(
     payload.shipping_address ?? payload.billing_address,
   );
 
-  if (!destination.country && !destination.province && admin) {
-    const pos = await resolvePosDestination(admin, payload.location_id);
-    if (pos.country || pos.province) {
-      destination = normalizeDestination({
-        country_code: pos.country,
-        province_code: pos.province,
-      });
+  /**
+   * Fall back whenever we believe this is a Canadian sale but can't say where.
+   * The old condition required BOTH country and province to be missing, so a
+   * POS order carrying a billing country but no province skipped the fallback
+   * entirely and landed in the unattributed pile — while the POS tile had
+   * already charged the correct provincial rate. The fee was right and the
+   * filing record was wrong, which is the worst way round.
+   */
+  const needsProvinceFallback =
+    !destination.province &&
+    (destination.country === null || destination.country === "CA");
+
+  if (needsProvinceFallback) {
+    if (admin) {
+      const resolved = await resolvePosDestination(
+        admin,
+        payload.location_id,
+        orderId,
+      );
+      if (resolved.country || resolved.province) {
+        destination = normalizeDestination({
+          country_code: resolved.country,
+          province_code: resolved.province,
+        });
+      }
+    } else {
+      console.warn(
+        `[remittance] order ${orderId}: no admin API client on this webhook, so the province could not be resolved. Recorded as unattributed.`,
+      );
     }
   }
 
@@ -216,6 +276,7 @@ export async function recordPaidOrder(params: {
       chargedLinesJson: JSON.stringify(chargedFees),
       expectedLinesJson: JSON.stringify(expectedLines),
       mismatch,
+      channel,
     },
     update: {
       orderName: payload.name ?? null,
@@ -227,6 +288,7 @@ export async function recordPaidOrder(params: {
       chargedLinesJson: JSON.stringify(chargedFees),
       expectedLinesJson: JSON.stringify(expectedLines),
       mismatch,
+      channel,
     },
   });
 }
@@ -265,6 +327,15 @@ export type ProvinceReportRow = {
   undeterminedOrders: number;
   /** True when the destination runs no regulated EHF schedule at all. */
   noProgram: boolean;
+  /**
+   * How the orders in this row were rung up. Context only — the filing is by
+   * province, so an in-store Alberta sale belongs in the Alberta row exactly
+   * like an online one. This just answers "how many of these were at the till".
+   */
+  posOrders: number;
+  onlineOrders: number;
+  /** Orders recorded before channel capture existed. */
+  unknownChannelOrders: number;
 };
 
 /**
@@ -348,12 +419,18 @@ export async function buildRemittanceReport(
       categories: [] as CategoryReportRow[],
       undeterminedOrders: 0,
       noProgram,
+      posOrders: 0,
+      onlineOrders: 0,
+      unknownChannelOrders: 0,
     };
 
     row.orders += 1;
     row.chargedCents += record.chargedCents;
     row.expectedCents += record.expectedCents ?? 0;
     if (record.expectedCents === null) row.undeterminedOrders += 1;
+    if (record.channel === "pos") row.posOrders += 1;
+    else if (record.channel === "online") row.onlineOrders += 1;
+    else row.unknownChannelOrders += 1;
     row.mismatches += record.mismatch ? 1 : 0;
     row.deltaCents = row.chargedCents - row.expectedCents;
 
