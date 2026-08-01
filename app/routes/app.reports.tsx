@@ -1,6 +1,16 @@
 import React from "react";
-import type { LoaderFunctionArgs, HeadersFunction } from "react-router";
-import { Link, useLoaderData, useLocation, useRouteError } from "react-router";
+import type {
+  ActionFunctionArgs,
+  LoaderFunctionArgs,
+  HeadersFunction,
+} from "react-router";
+import {
+  Link,
+  useFetcher,
+  useLoaderData,
+  useLocation,
+  useRouteError,
+} from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
 import { authenticate } from "../shopify.server";
@@ -8,6 +18,7 @@ import {
   buildRemittanceReport,
   type RemittanceReport,
 } from "../lib/remittance.server";
+import { resyncOrders } from "../lib/remittance-resync.server";
 
 export const headers: HeadersFunction = (args) => boundary.headers(args);
 
@@ -35,6 +46,35 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const report = await buildRemittanceReport(session.shop, from, to);
   return { report };
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  const { session, admin } = await authenticate.admin(request);
+
+  const form = await request.formData();
+  const now = new Date();
+  const from = parseDateParam(form.get("from") as string | null, quarterStart(now));
+  const to = parseDateParam(form.get("to") as string | null, now);
+
+  try {
+    const result = await resyncOrders({ shop: session.shop, admin, from, to });
+    return {
+      ok: true as const,
+      message:
+        `Re-scanned ${result.processed} order${result.processed === 1 ? "" : "s"}` +
+        (result.failed > 0 ? `, ${result.failed} could not be reprocessed` : "") +
+        (result.hasMore
+          ? ". There are more orders in this range than one run covers — run it again to continue."
+          : "."),
+    };
+  } catch (error) {
+    console.error("[resync] failed", error);
+    return {
+      ok: false as const,
+      message:
+        "Re-scan failed. Check that the app still has the read_orders permission, then try again.",
+    };
+  }
 }
 
 function money(cents: number | null | undefined): string {
@@ -130,6 +170,9 @@ export default function ReportsRoute() {
   // Expanded by default: the itemisation is the whole point of the report, and
   // someone reading figures out to their bookkeeper shouldn't have to click
   // nine times first. Collapsing is for tidying up, not for hiding detail.
+  const resync = useFetcher<typeof action>();
+  const resyncing = resync.state !== "idle";
+
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
   const toggle = (province: string) =>
     setCollapsed((prev) => {
@@ -357,6 +400,74 @@ export default function ReportsRoute() {
           >
             Download CSV
           </button>
+
+          {/* Re-scan. Records capture whatever the code knew when the webhook
+              fired, so a fix or a retag leaves old rows stale. Shopify still
+              holds the original orders, so they can be re-derived. */}
+          <section
+            style={{
+              marginTop: 28,
+              padding: "18px 20px",
+              border: "1px solid #ddd",
+              borderRadius: 8,
+              background: "#fafafa",
+              maxWidth: 720,
+            }}
+          >
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>
+              Re-scan orders in this period
+            </h3>
+            <p style={{ margin: "0 0 14px", fontSize: 13, color: "#555" }}>
+              Rebuilds the records above from Shopify&apos;s copy of each order.
+              Use it after retagging products or after an app update, to correct
+              rows that were recorded before the change. Safe to run more than
+              once — it overwrites in place rather than duplicating.
+            </p>
+
+            <resync.Form method="post">
+              <input type="hidden" name="from" value={shortDate(report.from)} />
+              <input type="hidden" name="to" value={shortDate(report.to)} />
+              <button
+                type="submit"
+                disabled={resyncing}
+                style={{
+                  padding: "9px 18px",
+                  borderRadius: 6,
+                  border: "1px solid #999",
+                  background: resyncing ? "#eee" : "#fff",
+                  fontSize: 14,
+                  cursor: resyncing ? "default" : "pointer",
+                }}
+              >
+                {resyncing
+                  ? "Re-scanning…"
+                  : `Re-scan ${shortDate(report.from)} → ${shortDate(report.to)}`}
+              </button>
+            </resync.Form>
+
+            {resync.data && (
+              <p
+                role="status"
+                style={{
+                  margin: "12px 0 0",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: resync.data.ok ? "#166534" : "#b42318",
+                }}
+              >
+                {resync.data.message}
+                {resync.data.ok ? " Reload the page to see the updated figures." : ""}
+              </p>
+            )}
+
+            <p style={{ margin: "12px 0 0", fontSize: 12, color: "#777" }}>
+              Expected fees are recalculated against <strong>today&apos;s</strong>{" "}
+              rate schedule. If a province changed its rates inside this period,
+              re-scanning older orders will compare them to the new rate and show
+              differences that aren&apos;t really errors — keep the range inside a
+              single rate period when that matters.
+            </p>
+          </section>
 
           {report.mismatches.length > 0 && (
             <>
