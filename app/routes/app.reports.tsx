@@ -362,8 +362,11 @@ export default function ReportsRoute() {
                       <td style={{ ...leftCell, paddingLeft: 40 }} colSpan={6}>
                         {row.undeterminedOrders} order
                         {row.undeterminedOrders === 1 ? "" : "s"} could not be
-                        priced (product tags unavailable, usually a deleted
-                        product) — the EHF owed figure above{" "}
+                        priced{" "}
+                        {row.provinceKnown
+                          ? "(product tags unavailable, usually a deleted product)"
+                          : "— without a destination province there is no schedule to price against"}
+                        {" — "}the EHF owed figure above{" "}
                         <strong>excludes</strong>{" "}
                         {row.undeterminedOrders === 1 ? "it" : "them"}. Don&apos;t
                         treat this row as complete.
