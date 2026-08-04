@@ -76,51 +76,89 @@ export function normalizeChannel(sourceName: string | null | undefined): OrderCh
 }
 
 /**
+ * Best-effort province from the selling location. Returns null for every
+ * failure — a missing scope, a throttle, a deleted location — so the caller
+ * can always fall through to the shop's own jurisdiction.
+ *
+ * `location` needs the `read_locations` scope, which this app does not
+ * request. That is deliberate: the shop jurisdiction below is correct for a
+ * single-location merchant, and a scope is not worth asking every merchant
+ * for to serve a case none of them have yet. The query is still attempted
+ * because a merchant who HAS granted it (or a future multi-location build)
+ * gets the more precise answer for free.
+ */
+async function provinceFromLocation(
+  admin: AdminGraphqlClient,
+  locationId: number | string,
+  orderId: string,
+): Promise<{ country: string | null; province: string | null } | null> {
+  try {
+    const res = await admin.graphql(
+      `#graphql
+        query PosLocationProvince($id: ID!) {
+          location(id: $id) {
+            address { provinceCode countryCode }
+          }
+        }
+      `,
+      { variables: { id: `gid://shopify/Location/${locationId}` } },
+    );
+    const json = await res.json();
+    const address = json?.data?.location?.address;
+    if (address?.countryCode) {
+      return {
+        country: String(address.countryCode).toUpperCase(),
+        province: address.provinceCode
+          ? String(address.provinceCode).toUpperCase()
+          : null,
+      };
+    }
+    console.warn(
+      `[remittance] order ${orderId}: location ${locationId} returned no country code; falling back to shop jurisdiction`,
+      json?.errors ?? "",
+    );
+  } catch (error) {
+    // Expected on any shop that hasn't granted read_locations. Not an error
+    // condition — the shop jurisdiction is the designed answer for this app.
+    console.info(
+      `[remittance] order ${orderId}: location lookup unavailable (${
+        error instanceof Error ? error.message : String(error)
+      }); falling back to shop jurisdiction`,
+    );
+  }
+  return null;
+}
+
+/**
  * POS orders carry no shipping address; the sale happens where possession
  * transfers. Prefer the selling location's registered province (multi-
  * location correct), then fall back to the shop's compliance province.
  *
- * Every failure path logs. A silent failure here misfiles a compliance record
- * into "destination not determined", which is exactly the kind of thing that
- * should be findable in the logs rather than discovered at filing time.
+ * The two lookups are deliberately isolated. They used to share one try
+ * block with the fallback downstream of the location query, so a throwing
+ * location lookup skipped the fallback entirely and the order was filed as
+ * "destination not determined" — with the shop's province sitting right
+ * there, known and unused. That is exactly the failure the fallback exists to
+ * prevent, so it must not be reachable only on the happy path.
+ *
+ * Every failure path logs. A silent failure here misfiles a compliance record,
+ * which should be findable in the logs rather than discovered at filing time.
  */
-async function resolvePosDestination(
+export async function resolvePosDestination(
   admin: AdminGraphqlClient,
   locationId: number | string | null | undefined,
   orderId: string,
 ): Promise<{ country: string | null; province: string | null }> {
-  try {
-    if (locationId) {
-      const res = await admin.graphql(
-        `#graphql
-          query PosLocationProvince($id: ID!) {
-            location(id: $id) {
-              address { provinceCode countryCode }
-            }
-          }
-        `,
-        { variables: { id: `gid://shopify/Location/${locationId}` } },
-      );
-      const json = await res.json();
-      const address = json?.data?.location?.address;
-      if (address?.countryCode) {
-        return {
-          country: String(address.countryCode).toUpperCase(),
-          province: address.provinceCode
-            ? String(address.provinceCode).toUpperCase()
-            : null,
-        };
-      }
-      console.warn(
-        `[remittance] order ${orderId}: location ${locationId} returned no country code; falling back to shop jurisdiction`,
-        json?.errors ?? "",
-      );
-    } else {
-      console.warn(
-        `[remittance] order ${orderId}: no location_id on the order; falling back to shop jurisdiction`,
-      );
-    }
+  if (locationId) {
+    const fromLocation = await provinceFromLocation(admin, locationId, orderId);
+    if (fromLocation) return fromLocation;
+  } else {
+    console.warn(
+      `[remittance] order ${orderId}: no location_id on the order; falling back to shop jurisdiction`,
+    );
+  }
 
+  try {
     const res = await admin.graphql(
       `#graphql
         query PosShopJurisdiction {
@@ -144,7 +182,7 @@ async function resolvePosDestination(
     );
   } catch (error) {
     console.error(
-      `[remittance] order ${orderId}: destination lookup threw; order will be recorded without a province`,
+      `[remittance] order ${orderId}: shop jurisdiction lookup threw; order will be recorded without a province`,
       error,
     );
   }
@@ -319,12 +357,22 @@ export type ProvinceReportRow = {
   mismatches: number;
   categories: CategoryReportRow[];
   /**
-   * Orders where the amount owed could NOT be computed (product tags
-   * unresolvable, usually a deleted product). Tracked separately because
-   * "we couldn't work it out" must never render as "$0.00 owed" on a
+   * Orders where the amount owed could NOT be computed. Tracked separately
+   * because "we couldn't work it out" must never render as "$0.00 owed" on a
    * compliance report.
+   *
+   * Two distinct causes, and the report must not guess between them: either
+   * the destination province is unknown (nothing to price against), or the
+   * province is known but a product's tags were unresolvable (usually a
+   * deleted product). Use `provinceKnown` to tell the reader which.
    */
   undeterminedOrders: number;
+  /**
+   * Whether this row has a real province. False for the "province not
+   * determined" buckets, where an unpriced order is explained by the missing
+   * province and not by anything to do with product tags.
+   */
+  provinceKnown: boolean;
   /** True when the destination runs no regulated EHF schedule at all. */
   noProgram: boolean;
   /**
@@ -418,6 +466,7 @@ export async function buildRemittanceReport(
       mismatches: 0,
       categories: [] as CategoryReportRow[],
       undeterminedOrders: 0,
+      provinceKnown: province !== null,
       noProgram,
       posOrders: 0,
       onlineOrders: 0,
