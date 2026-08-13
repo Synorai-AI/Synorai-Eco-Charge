@@ -476,9 +476,10 @@ export default function ReportsRoute() {
             <>
               <h3 style={{ marginTop: 28 }}>Orders where charged ≠ owed</h3>
               <p style={{ fontSize: 13, color: "#777", maxWidth: 720 }}>
-                Usually caused by a customer in another province (charged your store
-                province&apos;s rate) or an untagged product. The report above already
-                shows what you owe — this list is your audit trail.
+                The report above already shows what you owe — this list is your
+                audit trail. Every row says <strong>why</strong> the two figures
+                differ, and rows marked <em>no action</em> are correct as they
+                stand.
               </p>
               <table style={{ borderCollapse: "collapse", width: "100%" }}>
                 <thead>
@@ -486,19 +487,44 @@ export default function ReportsRoute() {
                     <th style={leftCell}>Order</th>
                     <th style={leftCell}>Date</th>
                     <th style={leftCell}>Destination</th>
+                    <th style={leftCell}>Channel</th>
                     <th style={cellStyle}>Charged</th>
                     <th style={cellStyle}>Owed</th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.mismatches.map((m, i) => (
-                    <tr key={i}>
-                      <td style={leftCell}>{m.orderName ?? "—"}</td>
-                      <td style={leftCell}>{shortDate(m.processedAt)}</td>
-                      <td style={leftCell}>{m.destination}</td>
-                      <td style={cellStyle}>{money(m.chargedCents)}</td>
-                      <td style={cellStyle}>{money(m.expectedCents)}</td>
-                    </tr>
+                    <React.Fragment key={i}>
+                      <tr>
+                        <td style={leftCell}>{m.orderName ?? "—"}</td>
+                        <td style={leftCell}>{shortDate(m.processedAt)}</td>
+                        <td style={leftCell}>{m.destination}</td>
+                        <td style={leftCell}>
+                          {m.channel === "pos"
+                            ? "In-store"
+                            : m.channel === "online"
+                              ? "Online"
+                              : "—"}
+                        </td>
+                        <td style={cellStyle}>{money(m.chargedCents)}</td>
+                        <td style={cellStyle}>{money(m.expectedCents)}</td>
+                      </tr>
+                      <tr>
+                        <td
+                          style={{
+                            ...leftCell,
+                            paddingLeft: 24,
+                            paddingTop: 0,
+                            fontSize: 13,
+                            color: m.needsAttention ? "#b42318" : "#5f6368",
+                          }}
+                          colSpan={6}
+                        >
+                          {m.needsAttention ? "Needs attention" : "No action"} —{" "}
+                          {m.reason}
+                        </td>
+                      </tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
