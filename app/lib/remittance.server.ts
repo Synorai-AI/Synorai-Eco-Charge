@@ -61,6 +61,17 @@ async function fetchProductTags(
   return tags;
 }
 
+/**
+ * Real Canadian jurisdictions that run no regulated electronics EHF schedule.
+ * Ontario ended its program in 2021 under individual producer responsibility;
+ * the territories have none this app can price. Orders shipped here owe $0
+ * legitimately — a different statement from "we don't recognise this".
+ *
+ * Declared here rather than beside the report builder because `recordPaidOrder`
+ * depends on it to price these orders at zero.
+ */
+const NO_PROGRAM_PROVINCES = new Set(["ON", "YT", "NT", "NU"]);
+
 export type OrderChannel = "pos" | "online";
 
 /**
@@ -232,9 +243,25 @@ export async function recordPaidOrder(params: {
    * entirely and landed in the unattributed pile — while the POS tile had
    * already charged the correct provincial rate. The fee was right and the
    * filing record was wrong, which is the worst way round.
+   *
+   * `!rawProvince` is load-bearing. `destination.province` is null for TWO
+   * different situations, and only one of them is a fallback case:
+   *
+   *   (a) we genuinely don't know where the order went — no address at all
+   *   (b) we know exactly where it went, and that province runs no EHF
+   *       program, so it isn't in PROVINCE_CONFIG and normalizeProvinceCode
+   *       returns null for it (ON, YT, NT, NU)
+   *
+   * Without this check, case (b) fired the fallback and OVERWROTE the real
+   * destination with the shop's own province — so an order shipped to Ontario
+   * was filed as Alberta with an Alberta fee owed, inflating what the merchant
+   * appears to owe ARMA on goods that left the province. `rawProvince` still
+   * holds "ON" even when `province` is null, so it's the reliable signal that
+   * we do in fact know the destination.
    */
   const needsProvinceFallback =
     !destination.province &&
+    !destination.rawProvince &&
     (destination.country === null || destination.country === "CA");
 
   if (needsProvinceFallback) {
@@ -262,6 +289,18 @@ export async function recordPaidOrder(params: {
 
   if (destination.country && destination.country !== "CA") {
     // Exports: no Canadian EHF owed.
+    expectedCents = 0;
+  } else if (
+    destination.rawProvince &&
+    NO_PROGRAM_PROVINCES.has(destination.rawProvince)
+  ) {
+    /**
+     * Ontario, Yukon, NWT and Nunavut run no regulated EHF programme, so $0 is
+     * the legally correct answer — not an unknown. Leaving expectedCents null
+     * here would file these under "could not be priced", which reads on a
+     * compliance report as "we don't know", when in fact we know precisely and
+     * the answer is nothing.
+     */
     expectedCents = 0;
   } else if (destination.province) {
     const productIds = Array.from(
@@ -386,14 +425,6 @@ export type ProvinceReportRow = {
   unknownChannelOrders: number;
 };
 
-/**
- * Real Canadian jurisdictions that run no regulated electronics EHF schedule.
- * Ontario ended its program in 2021 under individual producer responsibility;
- * the territories have none this app can price. Orders shipped here owe $0
- * legitimately — a different statement from "we don't recognise this".
- */
-const NO_PROGRAM_PROVINCES = new Set(["ON", "YT", "NT", "NU"]);
-
 const PROVINCE_DISPLAY_NAME: Record<string, string> = {
   ON: "Ontario",
   YT: "Yukon",
@@ -407,7 +438,77 @@ export type MismatchRow = {
   destination: string;
   chargedCents: number;
   expectedCents: number | null;
+  /** "pos" | "online", or null for records written before channel capture. */
+  channel: string | null;
+  /**
+   * Why charged and owed disagree, in words. Without this the list says only
+   * "charged $0.00, owed $0.45" and leaves the reader to invent a reason —
+   * and whoever signs the remittance will read every row as "why didn't staff
+   * charge this?", including the rows where nothing is wrong.
+   */
+  reason: string;
+  /**
+   * False when the row is explained and needs nobody to act. Lets the report
+   * separate "this is correct" from "someone should look at this" instead of
+   * mixing them in one undifferentiated list.
+   */
+  needsAttention: boolean;
 };
+
+/**
+ * Explain one charged-vs-owed disagreement.
+ *
+ * Deliberately honest about its own limits: tags are read as they are TODAY,
+ * so when a fee is missing this cannot distinguish "staff never applied it"
+ * from "the product was tagged after the sale". It says both rather than
+ * asserting the one that happens to be more alarming.
+ */
+function explainMismatch(record: {
+  destinationProvince: string | null;
+  destinationCountry: string | null;
+  chargedCents: number;
+  expectedCents: number | null;
+}): { reason: string; needsAttention: boolean } {
+  const { destinationProvince: province, chargedCents, expectedCents } = record;
+
+  if (province && NO_PROGRAM_PROVINCES.has(province)) {
+    return {
+      reason: `${PROVINCE_DISPLAY_NAME[province] ?? province} runs no EHF program — $0 owed is correct`,
+      needsAttention: false,
+    };
+  }
+
+  if (expectedCents === null) {
+    return {
+      reason: !province
+        ? "Destination province could not be determined, so there is no schedule to price against"
+        : "Product tags could not be resolved (usually a deleted product), so the amount owed is unknown",
+      needsAttention: true,
+    };
+  }
+
+  if (chargedCents === 0 && expectedCents > 0) {
+    return {
+      reason:
+        "No eco-fee line on this order. Either the fee was not applied at the time of sale, or the product was tagged afterwards — this report reads tags as they are today and cannot tell which.",
+      needsAttention: true,
+    };
+  }
+
+  if (chargedCents > expectedCents) {
+    return {
+      reason:
+        "Over-collected — more was charged than this destination's schedule requires, often the store province's rate applied to an out-of-province sale",
+      needsAttention: true,
+    };
+  }
+
+  return {
+    reason:
+      "Under-collected — a fee was applied but at less than the current schedule, e.g. an older rate or a partially tagged cart",
+    needsAttention: true,
+  };
+}
 
 export type RemittanceReport = {
   from: string;
@@ -564,6 +665,8 @@ export async function buildRemittanceReport(
         destination: r.destinationProvince ?? r.destinationCountry ?? "unknown",
         chargedCents: r.chargedCents,
         expectedCents: r.expectedCents,
+        channel: r.channel,
+        ...explainMismatch(r),
       })),
     unknownDestinationOrders,
   };
