@@ -4,7 +4,14 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { Form, data, redirect, useLoaderData } from "react-router";
+import {
+  Form,
+  data,
+  redirect,
+  useActionData,
+  useLoaderData,
+  useNavigation,
+} from "react-router";
 import { getPageViewStats, type PageViewStats } from "../lib/pageviews.server";
 import {
   getSubscriberStats,
@@ -106,6 +113,11 @@ export default function StatsRoute() {
   const loaded = useLoaderData() as
     | { authed: false; stats: null; subscribers: null }
     | { authed: true; stats: PageViewStats; subscribers: SubscriberStats };
+  // Without this the 401 path renders nothing at all, so a rejected key is
+  // indistinguishable from a dead button.
+  const actionData = useActionData() as { error?: string } | undefined;
+  const navigation = useNavigation();
+  const submitting = navigation.state === "submitting";
 
   if (!loaded.authed) {
     return (
@@ -115,6 +127,25 @@ export default function StatsRoute() {
           Enter the stats key. It&apos;s sent once and held in a cookie, so it
           never appears in a URL.
         </p>
+
+        {actionData?.error && (
+          <p
+            role="alert"
+            style={{
+              margin: "0 0 12px",
+              padding: "10px 12px",
+              borderRadius: 6,
+              background: "#fdeceb",
+              border: "1px solid #f5c2c0",
+              color: "#b42318",
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            {actionData.error}
+          </p>
+        )}
+
         <Form method="post">
           <input
             type="password"
@@ -132,18 +163,19 @@ export default function StatsRoute() {
           />
           <button
             type="submit"
+            disabled={submitting}
             style={{
               padding: "10px 20px",
               fontSize: 15,
               fontWeight: 600,
               borderRadius: 6,
               border: "none",
-              background: "#166534",
+              background: submitting ? "#9bd3ad" : "#166534",
               color: "#fff",
-              cursor: "pointer",
+              cursor: submitting ? "default" : "pointer",
             }}
           >
-            View stats
+            {submitting ? "Checking…" : "View stats"}
           </button>
         </Form>
       </main>

@@ -77,8 +77,28 @@ export async function destroyStatsSessionCookie(): Promise<string> {
 
 export function verifyStatsKey(provided: string | null): boolean {
   const secret = statsKey();
-  if (!secret || !provided) return false;
-  return keyMatches(provided, secret);
+
+  if (!secret) {
+    console.warn("[stats] sign-in attempted but STATS_KEY is not set");
+    return false;
+  }
+  if (!provided) {
+    console.warn("[stats] sign-in attempted with an empty key");
+    return false;
+  }
+
+  const ok = keyMatches(provided, secret);
+
+  if (!ok) {
+    // Lengths only, never the values. A mismatch here is almost always a
+    // paste that picked up a prompt fragment or lost a character, and the
+    // length alone identifies that without disclosing anything useful.
+    console.warn(
+      `[stats] incorrect key: provided ${provided.length} chars, expected ${secret.length}`,
+    );
+  }
+
+  return ok;
 }
 
 /**
