@@ -19,8 +19,8 @@ import {
   type SubscriberStats,
 } from "../lib/rate-alerts.server";
 import {
-  createStatsSessionCookie,
-  destroyStatsSessionCookie,
+  createStatsSessionCookies,
+  destroyStatsSessionCookies,
   hasStatsSession,
   verifyStatsKey,
   STATS_SECURITY_HEADERS,
@@ -69,12 +69,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
   );
 }
 
+/**
+ * Set-Cookie is the one header that legitimately repeats, so it has to be
+ * appended rather than assigned — an object literal would silently keep only
+ * the last value and drop the legacy-path expiry.
+ */
+function cookieHeaders(setCookies: string[]): Headers {
+  const headers = new Headers();
+  for (const value of setCookies) headers.append("Set-Cookie", value);
+  return headers;
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
 
   if (form.get("intent") === "sign-out") {
     return redirect("/stats", {
-      headers: { "Set-Cookie": await destroyStatsSessionCookie() },
+      headers: cookieHeaders(await destroyStatsSessionCookies()),
     });
   }
 
@@ -90,7 +101,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   return redirect("/stats", {
-    headers: { "Set-Cookie": await createStatsSessionCookie() },
+    headers: cookieHeaders(await createStatsSessionCookies()),
   });
 }
 
