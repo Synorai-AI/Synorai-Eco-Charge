@@ -1,4 +1,5 @@
 import db from "../db.server";
+import { clientIp, rateLimit } from "./rate-limit.server";
 
 /**
  * Privacy-preserving page view counting for the public pages.
@@ -31,6 +32,19 @@ export async function recordPageView(
 ): Promise<void> {
   try {
     if (isProbablyBot(request.headers.get("user-agent"))) return;
+
+    // Generous — well past what any human browsing session reaches, but it
+    // stops a script inflating the counts into meaninglessness. Counting must
+    // never break a page, so a limited request is simply not counted.
+    if (
+      !rateLimit({
+        key: `pageview:${clientIp(request)}`,
+        limit: 120,
+        windowSeconds: 3600,
+      }).allowed
+    ) {
+      return;
+    }
 
     const src = sanitizeSrc(new URL(request.url).searchParams.get("src"));
     const date = new Date().toISOString().slice(0, 10); // UTC day bucket

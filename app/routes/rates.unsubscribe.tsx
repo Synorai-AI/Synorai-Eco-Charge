@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { unsubscribeByToken } from "../lib/rate-alerts.server";
+import { clientIp, rateLimit } from "../lib/rate-limit.server";
 
 /**
  * One-click unsubscribe target for the EHF rate-change list.
@@ -17,6 +18,23 @@ export const meta: MetaFunction = () => [
 ];
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  // Tokens are unguessable UUIDs, so this is anti-enumeration rather than
+  // anti-guessing: without a cap, someone could grind tokens at will. Set
+  // generously — a real person clicks this once, and a retry or two after a
+  // mail-client prefetch is normal.
+  const limited = rateLimit({
+    key: `unsubscribe:${clientIp(request)}`,
+    limit: 20,
+    windowSeconds: 3600,
+  });
+
+  if (!limited.allowed) {
+    throw new Response("Too Many Requests", {
+      status: 429,
+      headers: { "Retry-After": String(limited.retryAfterSeconds) },
+    });
+  }
+
   const token = new URL(request.url).searchParams.get("token") ?? "";
   const removed = await unsubscribeByToken(token);
   return { removed };

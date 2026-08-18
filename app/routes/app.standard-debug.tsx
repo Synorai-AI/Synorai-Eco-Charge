@@ -107,7 +107,20 @@ async function getStandardDebugState(admin: any): Promise<{
   };
 }
 
+/**
+ * Internal tool: exposes setup state and can trigger a live cart-sync
+ * mutation. Admin-authenticated, so not reachable by outsiders, but it has no
+ * business being part of the production surface — set ENABLE_DEBUG_ROUTES=1 in
+ * the environment to turn it on when it's actually needed.
+ */
+function assertDebugRoutesEnabled() {
+  if (process.env.ENABLE_DEBUG_ROUTES !== "1") {
+    throw new Response("Not Found", { status: 404 });
+  }
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
+  assertDebugRoutesEnabled();
   const { admin, session } = await authenticate.admin(request);
 
   const state = await getStandardDebugState(admin);
@@ -124,6 +137,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
+  assertDebugRoutesEnabled();
   const { admin } = await authenticate.admin(request);
 
   const formData = await request.formData();

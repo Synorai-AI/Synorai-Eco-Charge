@@ -3,9 +3,10 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { useFetcher, useLoaderData } from "react-router";
+import { data, useFetcher, useLoaderData } from "react-router";
 import { recordPageView } from "../lib/pageviews.server";
 import { subscribeToRateAlerts } from "../lib/rate-alerts.server";
+import { clientIp, rateLimit } from "../lib/rate-limit.server";
 
 import {
   ALLOWED_PROVINCES,
@@ -80,16 +81,39 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
+const SIGNUP_SUCCESS =
+  "You're on the list. We'll email you when a province changes its EHF schedule.";
+
 export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
 
   // Honeypot: a real person never sees this field, so anything in it is a bot.
   // Report success anyway — telling scrapers they were caught just teaches them.
   if ((form.get("company") as string | null)?.trim()) {
-    return {
-      ok: true,
-      message: "You're on the list. We'll email you when a province changes its EHF schedule.",
-    };
+    return { ok: true, message: SIGNUP_SUCCESS };
+  }
+
+  /**
+   * The honeypot only stops naive bots. Without a cap, a script can enroll
+   * arbitrary third-party addresses — and because sends go out by hand to
+   * whoever appears on this list, a poisoned list would have us emailing
+   * people who never consented. That's a CASL problem, not just noise, which
+   * is why this is worth a limiter despite the low technical severity.
+   */
+  const limited = rateLimit({
+    key: `signup:${clientIp(request)}`,
+    limit: 5,
+    windowSeconds: 3600,
+  });
+
+  if (!limited.allowed) {
+    return data(
+      {
+        ok: false,
+        message: "Too many signups from this connection. Try again in a little while.",
+      },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
   }
 
   const email = (form.get("email") as string | null) ?? "";

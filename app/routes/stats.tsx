@@ -1,10 +1,21 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type {
+  ActionFunctionArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { Form, data, redirect, useLoaderData } from "react-router";
 import { getPageViewStats, type PageViewStats } from "../lib/pageviews.server";
 import {
   getSubscriberStats,
   type SubscriberStats,
 } from "../lib/rate-alerts.server";
+import {
+  createStatsSessionCookie,
+  destroyStatsSessionCookie,
+  hasStatsSession,
+  verifyStatsKey,
+  STATS_SECURITY_HEADERS,
+} from "../lib/stats-auth.server";
 
 export const meta: MetaFunction = () => [
   { title: "Stats" },
@@ -12,22 +23,57 @@ export const meta: MetaFunction = () => [
 ];
 
 /**
- * Private traffic stats, gated by ?key= matching the STATS_KEY env var.
- * If STATS_KEY isn't configured, the route simply doesn't exist (404).
+ * Private stats. The page renders subscriber email addresses, so the key is
+ * submitted once by POST and held in a signed httpOnly cookie thereafter —
+ * never in the URL, where it would land in access logs, browser history and
+ * the Referer header. `?key=` is no longer accepted.
+ *
+ * When STATS_KEY is unset the route 404s, as before.
  */
 export async function loader({ request }: LoaderFunctionArgs) {
-  const expected = process.env.STATS_KEY;
-  const provided = new URL(request.url).searchParams.get("key");
+  const authed = await hasStatsSession(request);
 
-  if (!expected || provided !== expected) {
-    throw new Response("Not Found", { status: 404 });
+  if (!authed) {
+    return data(
+      { authed: false as const, stats: null, subscribers: null },
+      { headers: STATS_SECURITY_HEADERS },
+    );
   }
 
   const [stats, subscribers] = await Promise.all([
     getPageViewStats(30),
     getSubscriberStats(),
   ]);
-  return { stats, subscribers };
+
+  return data(
+    { authed: true as const, stats, subscribers },
+    { headers: STATS_SECURITY_HEADERS },
+  );
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  const form = await request.formData();
+
+  if (form.get("intent") === "sign-out") {
+    return redirect("/stats", {
+      headers: { "Set-Cookie": await destroyStatsSessionCookie() },
+    });
+  }
+
+  const key = (form.get("key") as string | null)?.trim() ?? null;
+
+  if (!verifyStatsKey(key)) {
+    // Deliberately vague, and no timing signal — verifyStatsKey compares in
+    // constant time.
+    return data(
+      { error: "Incorrect key." },
+      { status: 401, headers: STATS_SECURITY_HEADERS },
+    );
+  }
+
+  return redirect("/stats", {
+    headers: { "Set-Cookie": await createStatsSessionCookie() },
+  });
 }
 
 const cell: React.CSSProperties = {
@@ -38,22 +84,66 @@ const cell: React.CSSProperties = {
 };
 const num: React.CSSProperties = { ...cell, textAlign: "right", fontVariantNumeric: "tabular-nums" };
 
+const shell: React.CSSProperties = {
+  maxWidth: 720,
+  margin: "0 auto",
+  padding: "40px 20px 80px",
+  fontFamily: "system-ui, sans-serif",
+  color: "#14281d",
+};
+
 export default function StatsRoute() {
-  const { stats, subscribers } = useLoaderData() as {
-    stats: PageViewStats;
-    subscribers: SubscriberStats;
-  };
+  const loaded = useLoaderData() as
+    | { authed: false; stats: null; subscribers: null }
+    | { authed: true; stats: PageViewStats; subscribers: SubscriberStats };
+
+  if (!loaded.authed) {
+    return (
+      <main style={{ ...shell, maxWidth: 420 }}>
+        <h1 style={{ fontSize: 22, marginTop: 0 }}>Synorai stats</h1>
+        <p style={{ fontSize: 14, color: "#5b7263" }}>
+          Enter the stats key. It&apos;s sent once and held in a cookie, so it
+          never appears in a URL.
+        </p>
+        <Form method="post">
+          <input
+            type="password"
+            name="key"
+            autoComplete="current-password"
+            aria-label="Stats key"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 15,
+              borderRadius: 6,
+              border: "1px solid #bfe6c9",
+              marginBottom: 10,
+            }}
+          />
+          <button
+            type="submit"
+            style={{
+              padding: "10px 20px",
+              fontSize: 15,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: "none",
+              background: "#166534",
+              color: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            View stats
+          </button>
+        </Form>
+      </main>
+    );
+  }
+
+  const { stats, subscribers } = loaded;
 
   return (
-    <main
-      style={{
-        maxWidth: 720,
-        margin: "0 auto",
-        padding: "40px 20px 80px",
-        fontFamily: "system-ui, sans-serif",
-        color: "#14281d",
-      }}
-    >
+    <main style={shell}>
       {/* Subscribers first — it's the number that decides whether the rates
           page is doing its job, and the addresses are needed to actually send. */}
       <h1 style={{ fontSize: 26, marginTop: 0 }}>
@@ -176,6 +266,23 @@ export default function StatsRoute() {
           ))}
         </tbody>
       </table>
+
+      <Form method="post" style={{ marginTop: 32 }}>
+        <input type="hidden" name="intent" value="sign-out" />
+        <button
+          type="submit"
+          style={{
+            padding: "8px 16px",
+            fontSize: 14,
+            borderRadius: 6,
+            border: "1px solid #bbb",
+            background: "#fff",
+            cursor: "pointer",
+          }}
+        >
+          Sign out
+        </button>
+      </Form>
     </main>
   );
 }
