@@ -1,5 +1,6 @@
 import type {
   ActionFunctionArgs,
+  HeadersFunction,
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
@@ -21,6 +22,15 @@ export const meta: MetaFunction = () => [
   { title: "Stats" },
   { name: "robots", content: "noindex,nofollow" },
 ];
+
+/**
+ * Headers for the HTML document response. Setting them via `data(…, { headers })`
+ * inside the loader is NOT enough — those apply to the data request, while a
+ * document render takes its headers from this export. Verified against the
+ * live deploy: without this, /stats came back with no Cache-Control and no
+ * Referrer-Policy at all, on a page that renders subscriber email addresses.
+ */
+export const headers: HeadersFunction = () => STATS_SECURITY_HEADERS;
 
 /**
  * Private stats. The page renders subscriber email addresses, so the key is
