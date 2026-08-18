@@ -31,7 +31,22 @@ function statsKey(): string | null {
 function statsCookie(secret: string) {
   return createCookie(COOKIE_NAME, {
     secrets: [secret],
-    path: "/stats",
+    /**
+     * Must be "/", not "/stats".
+     *
+     * React Router v7 single-fetch requests loader data from `/stats.data`.
+     * RFC 6265 path matching only lets cookie-path `/stats` match a longer
+     * request path when the next character is `/` — here it is `.`, so the
+     * cookie was never sent on the data request. The symptom was precise: a
+     * hard reload (full document GET to `/stats`) showed the page, while
+     * clicking the button did nothing at all, because the client-side
+     * revalidation fetched `/stats.data` without the cookie and got back
+     * "not signed in".
+     *
+     * The cookie is httpOnly and carries no meaning outside this route, so
+     * the wider path costs nothing.
+     */
+    path: "/",
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

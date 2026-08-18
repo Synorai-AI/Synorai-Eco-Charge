@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -117,6 +118,7 @@ export default function StatsRoute() {
   // indistinguishable from a dead button.
   const actionData = useActionData() as { error?: string } | undefined;
   const navigation = useNavigation();
+  const [showKey, setShowKey] = useState(false);
   const submitting = navigation.state === "submitting";
 
   if (!loaded.authed) {
@@ -147,20 +149,50 @@ export default function StatsRoute() {
         )}
 
         <Form method="post">
-          <input
-            type="password"
-            name="key"
-            autoComplete="current-password"
-            aria-label="Stats key"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              fontSize: 15,
-              borderRadius: 6,
-              border: "1px solid #bfe6c9",
-              marginBottom: 10,
-            }}
-          />
+          {/* Reveal toggle: this field is nearly always filled by pasting a
+              64-character random string, and a silent paste error is
+              indistinguishable from a wrong key. Being able to look at it
+              rules that out in a second. */}
+          <div style={{ position: "relative", marginBottom: 10 }}>
+            <input
+              type={showKey ? "text" : "password"}
+              name="key"
+              autoComplete="current-password"
+              aria-label="Stats key"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              style={{
+                width: "100%",
+                padding: "10px 44px 10px 12px",
+                fontSize: 15,
+                fontFamily: showKey ? "ui-monospace, monospace" : "inherit",
+                borderRadius: 6,
+                border: "1px solid #bfe6c9",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              aria-label={showKey ? "Hide key" : "Show key"}
+              aria-pressed={showKey}
+              title={showKey ? "Hide key" : "Show key"}
+              style={{
+                position: "absolute",
+                right: 6,
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "none",
+                border: "none",
+                padding: "4px 8px",
+                fontSize: 16,
+                lineHeight: 1,
+                cursor: "pointer",
+              }}
+            >
+              {showKey ? "🙈" : "👁"}
+            </button>
+          </div>
           <button
             type="submit"
             disabled={submitting}
