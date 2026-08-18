@@ -31,7 +31,22 @@ function statsKey(): string | null {
 function statsCookie(secret: string) {
   return createCookie(COOKIE_NAME, {
     secrets: [secret],
-    path: "/stats",
+    /**
+     * Must be "/", not "/stats".
+     *
+     * React Router v7 single-fetch requests loader data from `/stats.data`.
+     * RFC 6265 path matching only lets cookie-path `/stats` match a longer
+     * request path when the next character is `/` — here it is `.`, so the
+     * cookie was never sent on the data request. The symptom was precise: a
+     * hard reload (full document GET to `/stats`) showed the page, while
+     * clicking the button did nothing at all, because the client-side
+     * revalidation fetched `/stats.data` without the cookie and got back
+     * "not signed in".
+     *
+     * The cookie is httpOnly and carries no meaning outside this route, so
+     * the wider path costs nothing.
+     */
+    path: "/",
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -61,18 +76,57 @@ export async function hasStatsSession(request: Request): Promise<boolean> {
   return parsed?.ok === true;
 }
 
-export async function createStatsSessionCookie(): Promise<string> {
-  const secret = statsKey();
-  if (!secret) throw new Response("Not Found", { status: 404 });
+/**
+ * Path used before the fix. A browser that signed in then still holds a
+ * `synorai_stats` cookie scoped there, and because the name is identical it
+ * is a *second* cookie rather than a replacement — one the Path=/ expiry
+ * cannot touch.
+ *
+ * Left in place, that legacy cookie keeps authenticating full document GETs
+ * to /stats for the rest of its 30-day life, so "Sign out" would report
+ * success while a hard reload still showed subscriber PII. Anything that ends
+ * or replaces a session has to expire both.
+ */
+const LEGACY_COOKIE_PATH = "/stats";
 
-  return statsCookie(secret).serialize({ ok: true, at: Date.now() });
+function legacyExpiryHeader(): string {
+  return [
+    `${COOKIE_NAME}=`,
+    `Path=${LEGACY_COOKIE_PATH}`,
+    "Max-Age=0",
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "HttpOnly",
+    "SameSite=Lax",
+    ...(process.env.NODE_ENV === "production" ? ["Secure"] : []),
+  ].join("; ");
 }
 
-export async function destroyStatsSessionCookie(): Promise<string> {
+/**
+ * Returns every Set-Cookie value a caller must emit. Plural because clearing
+ * one path is not enough — see LEGACY_COOKIE_PATH.
+ */
+export async function destroyStatsSessionCookies(): Promise<string[]> {
   const secret = statsKey();
   if (!secret) throw new Response("Not Found", { status: 404 });
 
-  return statsCookie(secret).serialize("", { maxAge: 0 });
+  return [
+    await statsCookie(secret).serialize("", { maxAge: 0 }),
+    legacyExpiryHeader(),
+  ];
+}
+
+/**
+ * Sign-in also clears the legacy cookie, so a browser never carries two
+ * cookies of the same name whose precedence is ambiguous.
+ */
+export async function createStatsSessionCookies(): Promise<string[]> {
+  const secret = statsKey();
+  if (!secret) throw new Response("Not Found", { status: 404 });
+
+  return [
+    await statsCookie(secret).serialize({ ok: true, at: Date.now() }),
+    legacyExpiryHeader(),
+  ];
 }
 
 export function verifyStatsKey(provided: string | null): boolean {

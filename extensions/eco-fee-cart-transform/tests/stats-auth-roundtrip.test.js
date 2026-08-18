@@ -10,12 +10,28 @@ describe("stats cookie round trip", () => {
   });
 
   it("a cookie it issues is one it accepts back", async () => {
-    const setCookie = await mod.createStatsSessionCookie();
-    console.log("SET-COOKIE HEADER:", setCookie);
+    const [setCookie] = await mod.createStatsSessionCookies();
     const value = setCookie.split(";")[0];
     const req = new Request("https://x/stats", { headers: { Cookie: value } });
     const ok = await mod.hasStatsSession(req);
-    console.log("hasStatsSession ->", ok);
     expect(ok).toBe(true);
+  });
+});
+
+describe("legacy cookie path is expired", () => {
+  it("sign-out expires BOTH the current path and the legacy /stats path", async () => {
+    const cookies = await mod.destroyStatsSessionCookies();
+    expect(cookies).toHaveLength(2);
+    expect(cookies.some((c) => /Path=\/;/.test(c) || /Path=\/$/.test(c))).toBe(true);
+    const legacy = cookies.find((c) => c.includes("Path=/stats"));
+    expect(legacy).toBeDefined();
+    expect(legacy).toMatch(/Max-Age=0/);
+  });
+
+  it("sign-in also clears the legacy cookie, so two never coexist", async () => {
+    const cookies = await mod.createStatsSessionCookies();
+    expect(cookies).toHaveLength(2);
+    const legacy = cookies.find((c) => c.includes("Path=/stats"));
+    expect(legacy).toMatch(/Max-Age=0/);
   });
 });
