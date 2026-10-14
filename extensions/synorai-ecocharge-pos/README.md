@@ -22,25 +22,25 @@ POS cannot run cart transforms reliably (`requiresComponents` restriction) and
 never runs theme JS — a tile + Cart API is the supported pattern. Fully
 automatic (zero-tap) cart mutation is not supported by POS UI extensions.
 
-## Before first deploy — verify these assumptions on a dev store
+## Before first deploy — verify on a dev store
 
-This extension was written against the POS UI extensions **2025-01** API from
-documentation, without a live POS device to test on:
+This extension targets the POS UI extensions **2026-07** API (Preact + `s-`
+web components, global `shopify` object). It typechecks and bundles, but has
+not been run on a live POS device:
 
-- `cd extensions/synorai-ecocharge-pos && npm install`, then `npm run dev` at
-  the repo root and test on POS (a real device or the POS app in dev mode).
-- Confirm the package versions: `@shopify/ui-extensions-react ~2025.1.0`
-  matches API version `2025-01`. If the CLI complains, run
-  `shopify app generate extension --template pos_ui` in a scratch app and copy
-  the exact dependency pins it produces.
-- Confirm `api.cart.subscribable.initial.lineItems[].{uuid,productId,variantId,quantity}`
-  field names, and `api.action.presentModal()` on the tile target.
+- `npm install` at the repo root, then `npm run dev` and test on POS (a real
+  device or the POS app in dev mode).
+- Pins: `@shopify/ui-extensions ~2026.7.x` must match `api_version = "2026-07"`.
+- Cart lines come from `shopify.cart.current.value.lineItems[].{uuid,productId,variantId,quantity}`;
+  the tile opens the modal with `shopify.action.presentModal()`.
 - The backend auth helper prefers `authenticate.public.pos` and falls back to
   `authenticate.public.checkout` (same session-token validation). If the
   checkout fallback rejects POS tokens, validate the JWT manually with
   `@shopify/shopify-api`'s session token utilities.
 - Requests come from `cdn.shopify.com` / `extensions.shopifycdn.com`; the
   `cors()` wrapper from the auth helper must echo those origins.
+- Shopify supports each API version for 12 months; bump `api_version` and the
+  `@shopify/ui-extensions` pin before 2026-07 expires (July 2027).
 
 ## Known limits
 
