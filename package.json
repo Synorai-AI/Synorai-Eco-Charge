@@ -3,10 +3,11 @@
   "private": true,
   "scripts": {
     "build": "react-router build",
+    "build:storefront": "esbuild storefront-src/synorai-ecocharge-standard.js --minify --target=es2015 --legal-comments=none --outfile=extensions/synorai-ecocharge-storefront/assets/synorai-ecocharge-standard.js",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
-    "deploy": "shopify app deploy",
+    "deploy": "npm run build:storefront && shopify app deploy",
     "config:use": "shopify app config use",
     "env": "shopify app env",
     "start": "react-router-serve ./build/server/index.js",
