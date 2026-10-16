@@ -125,7 +125,9 @@ export const PROVINCE_CONFIG: Record<ProvinceCode, ProvinceConfig> = {
       printers: 1.65,
       peripherals: 0,
       av: 0.55,
-      cellphones: 0,
+      // ARMA lists "Cellular phones / smart phones" under AV / Telecom
+      // (re-verified 2026-10-16; no post-Sep-30 schedule published yet).
+      cellphones: 0.55,
       "display-small": 1.30,
       "display-large": 2.75,
       "display-xlarge": 2.75,

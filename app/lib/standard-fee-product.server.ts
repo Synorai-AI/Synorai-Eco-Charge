@@ -12,6 +12,16 @@ const STANDARD_FEE_PRODUCT_VENDOR = "Synorai";
 const STANDARD_FEE_PRODUCT_TYPE = "Synorai Eco Fee";
 const STANDARD_FEE_PRODUCT_TAG = "synorai-eco-fee";
 
+// The fee product must stay published to the Online Store so the storefront
+// script can add its variants to carts, but customers should not find it.
+// seo.hidden = 1 removes it from storefront search and adds noindex.
+const SEO_HIDDEN_METAFIELD = {
+  namespace: "seo",
+  key: "hidden",
+  type: "number_integer",
+  value: "1",
+};
+
 export type StandardFeeProductResult =
   | {
       ok: true;
@@ -385,6 +395,41 @@ async function publishStandardFeeProduct(
   }
 }
 
+/**
+ * Best-effort: a failure here is logged but never blocks setup, because a
+ * fee product that shows in search still charges fees correctly.
+ */
+async function hideStandardFeeProductFromSearch(
+  admin: AdminGraphqlClient,
+  productId: string,
+): Promise<void> {
+  try {
+    const res = await admin.graphql(
+      `#graphql
+        mutation HideStandardFeeProduct($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `,
+      { variables: { metafields: [{ ownerId: productId, ...SEO_HIDDEN_METAFIELD }] } },
+    );
+    const json = await res.json();
+    const userErrors = json?.data?.metafieldsSet?.userErrors ?? [];
+    if (userErrors.length > 0 || json?.errors?.length) {
+      logStandardFeeError("hideStandardFeeProductFromSearch failed", {
+        userErrors,
+        errors: json?.errors,
+      });
+    }
+  } catch (error) {
+    logStandardFeeError("hideStandardFeeProductFromSearch failed", error);
+  }
+}
+
 async function syncStandardFeeProductIdentity(
   admin: AdminGraphqlClient,
   productId: string,
@@ -438,6 +483,91 @@ async function syncStandardFeeProductIdentity(
       ok: false,
       error: getReadableErrorMessage(
         "Updating standard fee product identity failed.",
+        error,
+      ),
+    };
+  }
+}
+
+export type StandardFeeProductAvailability =
+  | { ok: true; exists: boolean; isActive: boolean; isOnOnlineStore: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Whether storefront carts can actually buy the fee variants. If the product
+ * is not ACTIVE or is unpublished from the Online Store, every /cart/add.js
+ * call for a fee fails with "Cannot find variant" and online orders silently
+ * go out with no fee.
+ */
+export async function getStandardFeeProductAvailability(
+  admin: AdminGraphqlClient,
+  productId: string,
+): Promise<StandardFeeProductAvailability> {
+  try {
+    const pubRes = await admin.graphql(`#graphql
+      query GetOnlineStorePublications {
+        publications(first: 50) {
+          nodes {
+            id
+            name
+            catalog {
+              title
+              status
+            }
+          }
+        }
+      }
+    `);
+    const pubJson = await pubRes.json();
+    const onlineStoreIds: string[] = (
+      (pubJson?.data?.publications?.nodes ?? []) as PublicationNode[]
+    )
+      .filter((publication) => publication?.id && isOnlineStorePublication(publication))
+      .map((publication) => publication.id);
+
+    if (onlineStoreIds.length === 0) {
+      return { ok: false, error: "No Online Store publication was found for this shop." };
+    }
+
+    const res = await admin.graphql(
+      `#graphql
+        query GetStandardFeeProductAvailability($id: ID!, $publicationId: ID!) {
+          product(id: $id) {
+            status
+            publishedOnPublication(publicationId: $publicationId)
+          }
+        }
+      `,
+      { variables: { id: productId, publicationId: onlineStoreIds[0] } },
+    );
+    const json = await res.json();
+
+    const product = json?.data?.product;
+    if (!product && !json?.errors?.length) {
+      // Deleted product: a definite outage, not a failed check.
+      return { ok: true, exists: false, isActive: false, isOnOnlineStore: false };
+    }
+    if (!product) {
+      return {
+        ok: false,
+        error: json.errors
+          .map((e: { message?: string }) => e?.message || "Unknown GraphQL error")
+          .join(", "),
+      };
+    }
+
+    return {
+      ok: true,
+      exists: true,
+      isActive: product.status === "ACTIVE",
+      isOnOnlineStore: product.publishedOnPublication === true,
+    };
+  } catch (error) {
+    logStandardFeeError("getStandardFeeProductAvailability failed", error);
+    return {
+      ok: false,
+      error: getReadableErrorMessage(
+        "Checking Environmental Fee product availability failed.",
         error,
       ),
     };
@@ -529,6 +659,8 @@ export async function createStandardFeeProduct(
         };
       }
 
+      await hideStandardFeeProductFromSearch(admin, existing.productId);
+
       return {
         ok: true,
         productId: existing.productId,
@@ -591,6 +723,8 @@ export async function createStandardFeeProduct(
         error: published.error,
       };
     }
+
+    await hideStandardFeeProductFromSearch(admin, productId);
 
     return {
       ok: true,
