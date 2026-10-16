@@ -490,7 +490,7 @@ async function syncStandardFeeProductIdentity(
 }
 
 export type StandardFeeProductAvailability =
-  | { ok: true; isActive: boolean; isOnOnlineStore: boolean }
+  | { ok: true; exists: boolean; isActive: boolean; isOnOnlineStore: boolean }
   | { ok: false; error: string };
 
 /**
@@ -543,12 +543,22 @@ export async function getStandardFeeProductAvailability(
     const json = await res.json();
 
     const product = json?.data?.product;
+    if (!product && !json?.errors?.length) {
+      // Deleted product: a definite outage, not a failed check.
+      return { ok: true, exists: false, isActive: false, isOnOnlineStore: false };
+    }
     if (!product) {
-      return { ok: false, error: "The Environmental Fee product was not found." };
+      return {
+        ok: false,
+        error: json.errors
+          .map((e: { message?: string }) => e?.message || "Unknown GraphQL error")
+          .join(", "),
+      };
     }
 
     return {
       ok: true,
+      exists: true,
       isActive: product.status === "ACTIVE",
       isOnOnlineStore: product.publishedOnPublication === true,
     };

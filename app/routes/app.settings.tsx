@@ -172,7 +172,7 @@ type LoaderData = {
   isStandardSetupComplete: boolean;
   standardPricingDiagnostics: StandardPricingDiagnostics;
   standardFeeProductAvailability:
-    | { ok: true; isActive: boolean; isOnOnlineStore: boolean }
+    | { ok: true; exists: boolean; isActive: boolean; isOnOnlineStore: boolean }
     | { ok: false; error: string }
     | null;
 };
@@ -1381,14 +1381,16 @@ export default function SettingsRoute() {
                   >
                     <p>
                       The Environmental Fee product is{" "}
-                      {!loaderData.standardFeeProductAvailability.isActive
+                      {!loaderData.standardFeeProductAvailability.exists
+                        ? "missing (deleted)"
+                        : !loaderData.standardFeeProductAvailability.isActive
                         ? "not Active"
                         : "not available on the Online Store sales channel"}
                       , so the storefront cannot add fees to carts.
                     </p>
                     <p>
                       Click <strong>Repair Standard Fee Setup</strong> below to
-                      republish it. It stays hidden from storefront search, so
+                      republish or recreate it. It stays hidden from storefront search, so
                       customers will not find it.
                     </p>
                   </Banner>
