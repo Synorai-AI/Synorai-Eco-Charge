@@ -52,6 +52,38 @@
       "debug": {{ block.settings.debug | json }}
     }
   </script>
+
+  {%- liquid
+    assign has_eco_tag = false
+    if template.name == 'product' and product
+      for tag in product.tags
+        assign tag_prefix = tag | slice: 0, 13
+        if tag_prefix == 'eco-category-'
+          assign has_eco_tag = true
+          break
+        endif
+      endfor
+    endif
+  -%}
+  {%- if has_eco_tag -%}
+    {%- comment -%}
+      Buy it now / Shop Pay / Apple Pay go straight to checkout without
+      touching the cart, so the fee line is never added. Hide them on this
+      product's own form (matched by variant ID, not other products on the
+      page) before the storefront script runs; Add to cart still charges.
+    {%- endcomment -%}
+    {%- capture eco_variant_inputs -%}
+      {%- for variant in product.variants -%}
+        [name="id"][value="{{ variant.id }}"]{% unless forloop.last %},{% endunless %}
+      {%- endfor -%}
+    {%- endcapture -%}
+    <style id="synorai-ecocharge-hide-express">
+      form:has({{ eco_variant_inputs }}) .shopify-payment-button,
+      form:has({{ eco_variant_inputs }}) shopify-accelerated-checkout {
+        display: none !important;
+      }
+    </style>
+  {%- endif -%}
 {% endif %}
 
 {% schema %}

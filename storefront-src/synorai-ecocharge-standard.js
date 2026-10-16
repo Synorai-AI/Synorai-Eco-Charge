@@ -711,6 +711,71 @@ function refreshCartDrawerUi() {
     );
   }
 
+  // Express checkout buttons (Buy it now, Shop Pay, Apple Pay) next to a
+  // product skip the cart, so no fee line is ever added. Each one is checked
+  // against its form's product, wherever it renders (product page, quick-shop
+  // popups); the embed's CSS covers the main product before this script runs.
+  // Cart-page express buttons are left alone because the cart already holds
+  // the fee line by then.
+  var EXPRESS_BUTTON_SELECTOR = ".shopify-payment-button, shopify-accelerated-checkout";
+
+  function hideExpressButtonIfFeeProduct(el, config) {
+    if (el.__synoraiChecked) return;
+    el.__synoraiChecked = true;
+
+    // A wrapper's inner checkout element is handled with the wrapper.
+    if (el.parentElement && el.parentElement.closest(".shopify-payment-button")) return;
+
+    var form = el.closest("form");
+    var input = form && form.querySelector("[name='id']");
+    if (!input || !input.value) return;
+
+    // Hidden until the product is proven fee-free, so the button can't be
+    // used mid-lookup; a failed lookup leaves it hidden (Add to cart works).
+    el.style.setProperty("display", "none", "important");
+
+    // /variants/<id> redirects to /products/<handle>?variant=<id>.
+    fetch("/variants/" + input.value, { method: "HEAD" })
+      .then(function (response) {
+        return fetch("/products/" + getProductHandle({ url: response.url }) + ".js");
+      })
+      .then(parseJsonResponse)
+      .then(function (product) {
+        var tags = normalizeTags(product.tags);
+        var carriesFee = Object.keys(config.variantMap).some(function (province) {
+          return highestCategoryFromTags(tags, config.variantMap[province] || {}, config.tagCategoryMap);
+        });
+        if (!carriesFee) el.style.removeProperty("display");
+      })
+      .catch(function () {});
+  }
+
+  function guardExpressCheckoutButtons(config) {
+    function scan(root) {
+      if (!root || !root.querySelectorAll) return;
+      if (root.matches && root.matches(EXPRESS_BUTTON_SELECTOR)) {
+        hideExpressButtonIfFeeProduct(root, config);
+      }
+      var found = root.querySelectorAll(EXPRESS_BUTTON_SELECTOR);
+      for (var i = 0; i < found.length; i += 1) {
+        hideExpressButtonIfFeeProduct(found[i], config);
+      }
+    }
+
+    scan(document);
+
+    if (typeof MutationObserver === "function") {
+      new MutationObserver(function (mutations) {
+        for (var i = 0; i < mutations.length; i += 1) {
+          var added = mutations[i].addedNodes;
+          for (var j = 0; j < added.length; j += 1) {
+            if (added[j].nodeType === 1) scan(added[j]);
+          }
+        }
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    }
+  }
+
   var configResult = getConfig();
   if (!configResult.ok) return;
 
@@ -723,6 +788,7 @@ function refreshCartDrawerUi() {
   wrapFetch();
   wrapXhr();
   bindAddToCartForms();
+  guardExpressCheckoutButtons(configResult.config);
 
   if (configResult.config.autoRun) {
     runSync("startup");
