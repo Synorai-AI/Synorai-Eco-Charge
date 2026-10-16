@@ -67,13 +67,19 @@
   -%}
   {%- if has_eco_tag -%}
     {%- comment -%}
-      Buy it now / Shop Pay / Apple Pay on the product page go straight to
-      checkout without touching the cart, so the fee line is never added.
-      Hide them for fee-bearing products; Add to cart still charges the fee.
+      Buy it now / Shop Pay / Apple Pay go straight to checkout without
+      touching the cart, so the fee line is never added. Hide them on this
+      product's own form (matched by variant ID, not other products on the
+      page) before the storefront script runs; Add to cart still charges.
     {%- endcomment -%}
+    {%- capture eco_variant_inputs -%}
+      {%- for variant in product.variants -%}
+        [name="id"][value="{{ variant.id }}"]{% unless forloop.last %},{% endunless %}
+      {%- endfor -%}
+    {%- endcapture -%}
     <style id="synorai-ecocharge-hide-express">
-      .shopify-payment-button,
-      shopify-accelerated-checkout {
+      form:has({{ eco_variant_inputs }}) .shopify-payment-button,
+      form:has({{ eco_variant_inputs }}) shopify-accelerated-checkout {
         display: none !important;
       }
     </style>

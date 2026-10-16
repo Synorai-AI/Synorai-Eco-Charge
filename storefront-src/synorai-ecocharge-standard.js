@@ -712,33 +712,12 @@ function refreshCartDrawerUi() {
   }
 
   // Express checkout buttons (Buy it now, Shop Pay, Apple Pay) next to a
-  // product skip the cart, so no fee line is ever added. The embed hides them
-  // on product pages; this covers buttons rendered elsewhere, such as theme
-  // quick-shop popups. Cart-page express buttons are left alone because the
-  // cart already holds the fee line by then.
+  // product skip the cart, so no fee line is ever added. Each one is checked
+  // against its form's product, wherever it renders (product page, quick-shop
+  // popups); the embed's CSS covers the main product before this script runs.
+  // Cart-page express buttons are left alone because the cart already holds
+  // the fee line by then.
   var EXPRESS_BUTTON_SELECTOR = ".shopify-payment-button, shopify-accelerated-checkout";
-  var variantHandleCache = {};
-
-  function getHandleByVariantId(variantId) {
-    if (!variantHandleCache[variantId]) {
-      // /variants/<id> redirects to /products/<handle>?variant=<id>.
-      variantHandleCache[variantId] = fetch("/variants/" + variantId, { method: "HEAD" })
-        .then(function (response) {
-          return getProductHandle({ url: response.url });
-        })
-        .catch(function () {
-          return "";
-        });
-    }
-    return variantHandleCache[variantId];
-  }
-
-  function tagsCarryFee(tags, config) {
-    return Object.keys(config.variantMap).some(function (province) {
-      var provinceMap = config.variantMap[province];
-      return !!provinceMap && !!highestCategoryFromTags(tags, provinceMap, config.tagCategoryMap);
-    });
-  }
 
   function hideExpressButtonIfFeeProduct(el, config) {
     if (el.__synoraiChecked) return;
@@ -751,13 +730,24 @@ function refreshCartDrawerUi() {
     var input = form && form.querySelector("[name='id']");
     if (!input || !input.value) return;
 
-    getHandleByVariantId(input.value)
-      .then(getProductTagsByHandle)
-      .then(function (tags) {
-        if (tagsCarryFee(tags, config)) {
-          el.style.setProperty("display", "none", "important");
-        }
-      });
+    // Hidden until the product is proven fee-free, so the button can't be
+    // used mid-lookup; a failed lookup leaves it hidden (Add to cart works).
+    el.style.setProperty("display", "none", "important");
+
+    // /variants/<id> redirects to /products/<handle>?variant=<id>.
+    fetch("/variants/" + input.value, { method: "HEAD" })
+      .then(function (response) {
+        return fetch("/products/" + getProductHandle({ url: response.url }) + ".js");
+      })
+      .then(parseJsonResponse)
+      .then(function (product) {
+        var tags = normalizeTags(product.tags);
+        var carriesFee = Object.keys(config.variantMap).some(function (province) {
+          return highestCategoryFromTags(tags, config.variantMap[province] || {}, config.tagCategoryMap);
+        });
+        if (!carriesFee) el.style.removeProperty("display");
+      })
+      .catch(function () {});
   }
 
   function guardExpressCheckoutButtons(config) {
