@@ -52,6 +52,32 @@
       "debug": {{ block.settings.debug | json }}
     }
   </script>
+
+  {%- liquid
+    assign has_eco_tag = false
+    if template.name == 'product' and product
+      for tag in product.tags
+        assign tag_prefix = tag | slice: 0, 13
+        if tag_prefix == 'eco-category-'
+          assign has_eco_tag = true
+          break
+        endif
+      endfor
+    endif
+  -%}
+  {%- if has_eco_tag -%}
+    {%- comment -%}
+      Buy it now / Shop Pay / Apple Pay on the product page go straight to
+      checkout without touching the cart, so the fee line is never added.
+      Hide them for fee-bearing products; Add to cart still charges the fee.
+    {%- endcomment -%}
+    <style id="synorai-ecocharge-hide-express">
+      .shopify-payment-button,
+      shopify-accelerated-checkout {
+        display: none !important;
+      }
+    </style>
+  {%- endif -%}
 {% endif %}
 
 {% schema %}
