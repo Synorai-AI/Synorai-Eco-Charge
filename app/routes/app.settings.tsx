@@ -34,6 +34,7 @@ import {
 import {
   createStandardFeeProduct,
   ensureStandardFeeProductVariants,
+  getStandardFeeProductAvailability,
   getStandardFeeProductDiagnostics,
   getStandardFeeVariantMap,
   normalizeStandardFeeProductVariants,
@@ -170,6 +171,10 @@ type LoaderData = {
   standardVariantMapExists: boolean;
   isStandardSetupComplete: boolean;
   standardPricingDiagnostics: StandardPricingDiagnostics;
+  standardFeeProductAvailability:
+    | { ok: true; isActive: boolean; isOnOnlineStore: boolean }
+    | { ok: false; error: string }
+    | null;
 };
 
 type ActionData =
@@ -785,6 +790,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
     session.shop,
     standardSetup.standardFeeProductId,
   );
+  const standardFeeProductAvailability =
+    activeMode === "standard_fee_product" && standardSetup.standardFeeProductId
+      ? await getStandardFeeProductAvailability(
+          admin,
+          standardSetup.standardFeeProductId,
+        )
+      : null;
 
   const data: LoaderData = {
     shopDomain: session.shop,
@@ -809,6 +821,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     standardVariantMapExists: standardSetup.standardVariantMapExists,
     isStandardSetupComplete: standardSetup.isStandardSetupComplete,
     standardPricingDiagnostics,
+    standardFeeProductAvailability,
   };
 
   return Response.json(data);
@@ -1358,6 +1371,34 @@ export default function SettingsRoute() {
                     : "Not configured"}
                 </Badge>
               </InlineStack>
+
+              {loaderData.standardFeeProductAvailability?.ok === true &&
+                (!loaderData.standardFeeProductAvailability.isActive ||
+                  !loaderData.standardFeeProductAvailability.isOnOnlineStore) && (
+                  <Banner
+                    title="Online orders are not being charged eco fees"
+                    tone="critical"
+                  >
+                    <p>
+                      The Environmental Fee product is{" "}
+                      {!loaderData.standardFeeProductAvailability.isActive
+                        ? "not Active"
+                        : "not available on the Online Store sales channel"}
+                      , so the storefront cannot add fees to carts.
+                    </p>
+                    <p>
+                      Click <strong>Repair Standard Fee Setup</strong> below to
+                      republish it. It stays hidden from storefront search, so
+                      customers will not find it.
+                    </p>
+                  </Banner>
+                )}
+
+              {loaderData.standardFeeProductAvailability?.ok === false && (
+                <Banner title="Could not verify the fee product" tone="warning">
+                  <p>{loaderData.standardFeeProductAvailability.error}</p>
+                </Banner>
+              )}
 
               {diagnostics.status === "ok" && (
                 <Banner title="Standard fee admin diagnostics passed" tone="success">

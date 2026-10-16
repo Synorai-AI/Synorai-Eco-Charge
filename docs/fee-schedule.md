@@ -52,7 +52,7 @@ Display tiers: small ≤29", large 30"–45", xlarge 46"–64", xxlarge 65"+.
 | printers | 1.65 | 6.95 | 4.50 | 6.75 | 6.50 | 5.25 | 5.25 | 7.25 | 4.50 |
 | peripherals | — | 0.55 | 0.20 | 0.50 | 0.45 | 0.25 | 0.25 | 0.55 | 0.20 |
 | av | 0.55 | 3.50 | 1.25 | 3.75 | 3.75 | 2.25 | 2.25 | 3.75 | 1.25 |
-| cellphones | — | 0.20 | 0.10 | 0.20 | 0.25 | 0.11 | 0.11 | 0.20 | — |
+| cellphones | 0.55 | 0.20 | 0.10 | 0.20 | 0.25 | 0.11 | 0.11 | 0.20 | — |
 | display-small | 1.30 | 4.95 | 1.80 | 5.00 | 5.95 | 3.00 | 3.00 | 5.50 | 1.80 |
 | display-large | 2.75 | 6.80 | 3.10 | 7.05 | 9.05 | 5.50 | 5.50 | 8.50 | 3.10 |
 | display-xlarge | 2.75 | 11.00 | 7.00 | 14.25 | 17.10 | 10.50 | 10.50 | 16.75 | 7.00 |
@@ -79,8 +79,9 @@ Display tiers: small ≤29", large 30"–45", xlarge 46"–64", xxlarge 65"+.
   https://www.albertarecycling.ca/stewardship-recycling/electronics/ and
   https://files.albertarecycling.ca/Electronics_Products-Definitions-and-Fees.pdf
   AB uses only two display tiers (<30" = 1.30, ≥30" = 2.75); xlarge/xxlarge
-  mirror the ≥30" fee. **Re-check on Oct 1, 2026** when the published schedule
-  window ends.
+  mirror the ≥30" fee. Cellular phones / smart phones fall under AV / Telecom
+  ($0.55). Re-checked 2026-10-16: ARMA has not published a schedule for after
+  Sep 30, 2026, so the Apr 2025 rates stay in place until it does.
 - **British Columbia (EPRA-BC)** — Technical Product Listing *updated June
   2026*:
   https://www.recyclemy-assets.com/1780319839-epra-bc-obligated-products-definitions-june-2026.pdf
